@@ -1,0 +1,180 @@
+# All SI units except explicitly suffixed bar and degrees C.
+# Values not supplied by the user are examples, not validated material properties.
+geometry:
+  actuator_count: 2
+  actuator_piston_diameter_m: 0.038
+  actuator_shaft_diameter_m: 0.014
+  # At x=0: 55 mm fluid chamber and 20 mm gas chamber. Extension shortens
+  # the fluid chamber to 5 mm; compression shortens the gas chamber to 5 mm.
+  actuator_fluid_chamber_length_at_zero_m: 0.055
+  actuator_gas_chamber_length_at_zero_m: 0.020
+  actuator_extension_travel_m: 0.050
+  actuator_compression_travel_m: 0.015
+  actuator_fluid_dead_volume_m3: 0.0
+  actuator_gas_dead_volume_m3: 0.0
+  blowoff_piston_diameter_m: 0.045
+  blowoff_shaft_diameter_m: 0.012
+  main_accumulator_piston_diameter_m: 0.045
+  main_gas_volume_at_zero_m3: 0.000050
+  main_accumulator_expansion_stop_m: 0.007
+  blowoff_gas_volume_at_zero_stop_m3: 0.001
+  actuator_input_shaft_stiffness_n_m: 20000000
+  hydraulic_pipe_diameter_m: 0.004
+  hydraulic_pipe_length_m: 1.0
+  gas_pipe_diameter_m: 0.004
+  gas_pipe_length_m: 1.0
+  low_pressure_reservoir_m3: 0.000150
+  # Unknown hydraulic-side volumes at the zero piston references. These
+  # provisional values also account for nearby fittings; measure or replace.
+  main_accumulator_fluid_volume_at_zero_m3: 0.000050
+  blowoff_fluid_volume_at_zero_m3: 0.000030
+  hydraulic_junction_volume_m3: 0.000005
+  gas_junction_volume_m3: 0.000001
+  # The short blow-off and actuator-to-gas-manifold connections have no
+  # supplied dimensions. Model each provisionally as a 50 mm, 4 mm bore tube;
+  # these are separate from the specified 1 m pipes and are not measured.
+  blowoff_connection_length_m: 0.05
+  blowoff_connection_diameter_m: 0.004
+  actuator_gas_connection_length_m: 0.05
+  actuator_gas_connection_diameter_m: 0.004
+moving_masses_kg:
+  # User-supplied moving masses; actuator shaft compliance is configured above.
+  actuator_a: 0.100
+  actuator_b: 0.100
+  blowoff: 0.100
+  main_accumulator: 0.070
+seal_friction:
+  # Provisional Coulomb/static friction. Force = constant + coefficient times
+  # the sum of the non-negative gauge pressures on both sides. The 2 N/bar
+  # coefficient is 0.00002 N/Pa. Equal static and sliding friction is the
+  # provisional default. Change this ratio when measured sliding data exists;
+  # values below 1 can produce repeated short slip events and slow integration.
+  kinetic_to_static_ratio: 1.0
+  actuator: {constant_n: 40, pressure_coefficient_n_pa: 0.00002}
+  main_accumulator: {constant_n: 60, pressure_coefficient_n_pa: 0.00002}
+  blowoff: {constant_n: 80, pressure_coefficient_n_pa: 0.00002}
+fluid:
+  # DOT 4 is a specification, not a single formulation. DuPont DBF455 is a
+  # reference surrogate, not a claim that this exact fluid has been selected:
+  # https://www.dupont.com/content/dam/dupont/amer/us/en/transportation-industrial/public/documents/en/DP09-A_Brake_Fluids_Product_Sheet_NA.pdf
+  type: DOT4
+  # DBF455 datasheet density 1.062 g/cm3; reference temperature not specified
+  # on that sheet, provisionally treated here as 20 C.
+  density_kg_m3_at_20c: 1062
+  # Guessed glycol-fluid thermal expansion, heat capacity and conductivity;
+  # these are not measured DBF455 properties.
+  volumetric_expansion_per_k: 0.0007
+  specific_heat_j_kg_k: 1500
+  thermal_conductivity_w_m_k: 0.2
+  # Brake-fluid bulk modulus of 19,535 bar reported for a studied fluid;
+  # formulation and operating conditions may differ from this DOT 4 fluid.
+  # https://saemobilus.sae.org/papers/compressible-brake-fluid-turbulent-flow-simulation-experimental-verification-brake-bleeding-performance-improvements-epb-caliper-2018-01-1876
+  bulk_modulus_pa: 1953500000
+  # 20 C viscosity is a provisional estimate. DBF455 reports 2.1 mm2/s at
+  # 100 C; using the above density and expansion gives about 0.0021 Pa s.
+  # A log-linear interpolation between these points is a provisional future
+  # solver model, not an implemented or experimentally fitted curve.
+  dynamic_viscosity_pa_s: 0.01
+  dynamic_viscosity_pa_s_at_100c: 0.0021
+  pipe_roughness_m: 0.000001
+gas:
+  type: nitrogen
+  # Molar mass from https://www.airproducts.com/-/media/airproducts/files/en/900/900-13-093-us-gaseous-nitrogen-safetygram-2.pdf
+  # cp ~= 1040 J/kg/K near 300 K from NIST's ideal-gas Shomate coefficients:
+  # https://webbook.nist.gov/cgi/cbook.cgi?Mask=47&Source=1944GAY286&Units=SI
+  # Constant ideal-gas properties are a provisional approximation: pressure
+  # and temperature dependence, particularly at 80 bar, remain to be assessed.
+  molar_mass_kg_mol: 0.0280134
+  specific_gas_constant_j_kg_k: 296.8
+  specific_heat_cp_j_kg_k: 1040
+  dynamic_viscosity_pa_s_at_25c: 0.0000178
+  thermal_conductivity_w_m_k_at_25c: 0.026
+  # Near-room-temperature, low-pressure starting estimates; pressure-dependent
+  # transport correlations: https://www.nist.gov/publications/viscosity-and-thermal-conductivity-equations-nitrogen-oxygen-argon-and-air
+thermal:
+  # All values below are engineering guesses, not measured coefficients. Areas,
+  # housing masses and cooler behaviour are unknown and must be calibrated.
+  # First estimate: 50 -> 100 C in 180 s in 120 C ambient gives
+  # tau = -180 / ln((120-100)/(120-50)) = 144 s for a single lump.
+  # A guessed 0.25 kg steel housing + 0.10 kg piston at 500 J/kg/K and
+  # ~0.057 kg fluid at 1500 J/kg/K give C ~= 261 J/K, so UA ~= 1.8 W/K.
+  # For a guessed 48 mm OD, 75 mm long cylinder including its ends,
+  # area ~= 0.0149 m2 and h ~= 122 W/m2/K. Use 120 as a starting value.
+  # Internal gradients, pipe losses and other heat paths change the result;
+  # the full spatial model will need to be calibrated to the 3-minute target.
+  # Isolated six-node estimate (no flow or pipe exchange) at 180 s: housing
+  # about 102 C, fluid 93 C, gas core 89 C, piston faces about 68 C. These
+  # differences show why a single warm-up target cannot identify every film.
+  actuator_hot_ambient_to_housing_w_m2_k: 120
+  actuator_housing_mass_kg_each: 0.25
+  actuator_outer_heat_transfer_area_m2_each: 0.0149
+  actuator_outer_diameter_m: 0.048  # guessed for axial wall conduction
+  metal_specific_heat_j_kg_k: 500
+  metal_thermal_conductivity_w_m_k: 45
+  metal_density_kg_m3: 7850  # approximate steel; used for pipe-wall mass
+  # Fluid film 300 corresponds to a 0.67 mm layer at k=0.2 W/m/K; it assumes
+  # substantial mixing and may be high at rest. Gas film 15 corresponds to a
+  # ~1.7 mm layer at k=0.026 W/m/K. The separate core-to-boundary value 5
+  # corresponds to about 5 mm of conduction, allowing a slow gas response.
+  # These are effective boundary-layer guesses, not measured coefficients.
+  fluid_to_housing_w_m2_k: 300
+  # Two-zone chamber fluid model: 20% of its mass is a near-wall layer.
+  # 200 W/m2/K core-to-layer coupling corresponds to a 1 mm layer at the
+  # provisional 0.2 W/m/K conductivity; both values are unmeasured guesses.
+  liquid_boundary_mass_fraction: 0.2
+  liquid_core_to_boundary_w_m2_k: 200
+  gas_to_housing_w_m2_k: 15
+  gas_core_to_boundary_w_m2_k: 5
+  # Provisional near-wall mass fraction for each chamber's two-zone nitrogen
+  # model; remaining gas is the core. The partition is not measured.
+  gas_boundary_mass_fraction: 0.2
+  # Apply the corresponding fluid/gas film coefficients to piston faces too.
+  # Steel piston conduction k*A/L with guessed 5 mm thickness: about 10 W/K
+  # for 38 mm piston and 14 W/K for 45 mm piston. Seals/contact are omitted.
+  actuator_piston_through_conductance_w_k: 10
+  main_accumulator_piston_through_conductance_w_k: 14
+  blowoff_piston_through_conductance_w_k: 14
+  # Cooler-side natural convection guesses; external pipe OD is assumed 6 mm.
+  hydraulic_pipe_fluid_to_wall_w_m2_k: 300
+  gas_pipe_gas_to_wall_w_m2_k: 15
+  pipe_wall_to_surroundings_w_m2_k: 10
+  pipe_outer_diameter_m: 0.006
+  accumulator_and_reservoir_housing_to_cooler_w_m2_k: 10
+  # Guessed housing thermal masses and exposed areas, awaiting dimensions.
+  # Wetted chamber area is estimated from volume / piston area, assuming all
+  # of each chamber volume lies inside the 45 mm bore (no remote gas volume).
+  # Thus area varies with piston travel. If the 1000 cc blow-off gas includes
+  # a remote reservoir, its true wetted areas may be very different.
+  main_accumulator_housing_mass_kg: 0.5
+  blowoff_housing_mass_kg: 0.8
+  low_pressure_reservoir_housing_mass_kg: 0.3
+  main_accumulator_exposed_area_m2: 0.015
+  # The all-in-bore assumption implies ~0.65 m length at zero travel, giving
+  # roughly 0.115 m2 external area for an assumed 55 mm outside diameter.
+  blowoff_exposed_area_m2: 0.115
+  low_pressure_reservoir_exposed_area_m2: 0.02
+  # Guessed cooler region thermal storage and UA. Initial UA = 2 W/K at zero
+  # air speed plus 3 W/K per m/s; it exchanges heat with 25 C supply air.
+  # These are tunable starting values, not a measured duct correlation.
+  cooler_region_heat_capacity_j_k: 5000
+  cooler_base_conductance_w_k: 2
+  cooler_air_speed_conductance_w_k_per_m_s: 3
+  cooler_supply_air_temperature_c: 25
+  cooler_other_heat_input_w: 0
+restrictions:
+  # The fitted saturating curve has no inverse above its asymptote. For
+  # transient calculations a tangent, linear high-flow continuation begins
+  # at 95% of the asymptote. This extrapolation is provisional; both supplied
+  # test points remain on the fitted part of each curve.
+  high_flow_tail_fraction: 0.95
+  actuator:
+    compression: {speed_m_s: [0.15, 0.8], force_n: [4000, 6000]}
+    extension: {speed_m_s: [0.15, 0.8], force_n: [5000, 7000]}
+  accumulator_inlet:
+    compression: {speed_m_s: [0.15, 0.8], force_n: [4000, 6000]}
+    extension: {speed_m_s: [0.15, 0.8], force_n: [5000, 7000]}
+sensor_profiles:
+  pressure: {noise_std: 0.01, drift_std_per_sqrt_hour: 0.005} # bar
+  temperature: {noise_std: 0.05, drift_std_per_sqrt_hour: 0.02} # deg C
+  displacement: {noise_std: 0.005, drift_std_per_sqrt_hour: 0.0} # mm
+  force: {noise_std: 5.0, drift_std_per_sqrt_hour: 2.0} # N
