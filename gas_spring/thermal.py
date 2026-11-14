@@ -1,4 +1,4 @@
-"""Conservative thermal building blocks for a future coupled solver.
+"""Conservative thermal building blocks for the coupled solver.
 
 All temperatures in kelvin or degrees Celsius (differences only), heat rates in W.
 """

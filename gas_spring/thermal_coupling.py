@@ -8,7 +8,7 @@ import numpy as np
 
 from .balances import ideal_gas_state
 from .hydraulics import piston_area
-from .materials import liquid_state, liquid_zone_temperatures
+from .materials import liquid_temperatures
 from .thermal import actuator_wall_cell_areas
 
 
@@ -32,10 +32,9 @@ def thermal_exchange(physical, run, liquid_nodes, gas_nodes, solid_temperatures_
         temps[key] = float(value)
         heat[key] = 0.0
     for name, node in liquid_nodes.items():
-        _, temp = liquid_state(node["mass_kg"], node["internal_energy_j"], node["volume_m3"], fluid)
+        _, temp, boundary = liquid_temperatures(node["mass_kg"], node["internal_energy_j"], fluid,
+            node.get("boundary_energy_j"), node.get("boundary_mass_fraction"))
         if "boundary_mass_fraction" in node:
-            _, temp, boundary = liquid_zone_temperatures(node["mass_kg"], node["internal_energy_j"],
-                node["volume_m3"], node["boundary_energy_j"], node["boundary_mass_fraction"], fluid)
             add_temp("lb:"+name, boundary)
         add_temp("l:"+name, temp)
     cv = gas["specific_heat_cp_j_kg_k"] - gas["specific_gas_constant_j_kg_k"]

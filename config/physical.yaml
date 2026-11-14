@@ -37,12 +37,24 @@ geometry:
   blowoff_connection_diameter_m: 0.004
   actuator_gas_connection_length_m: 0.05
   actuator_gas_connection_diameter_m: 0.004
+end_stops:
+  # 10 kN/mm per piston stop, represented as unilateral elastic contact.
+  stiffness_n_m: 10000000
 moving_masses_kg:
-  # User-supplied moving masses; actuator shaft compliance is configured above.
+  # Moving masses of the gas-spring pistons; external loads are configured below.
   actuator_a: 0.100
   actuator_b: 0.100
   blowoff: 0.100
   main_accumulator: 0.070
+# One approximately 30 kg wheel assembly is assumed to move with the actuator
+# inputs. Under symmetric motion, split its effective inertia equally. This
+# affects mechanical inertia/kinetic energy; the wheel's thermal capacity is
+# not modeled as a separate thermal state.
+attached_masses_kg:
+  actuator_a: 15.0
+  actuator_b: 15.0
+  blowoff: 0.0
+  main_accumulator: 0.0
 seal_friction:
   # Provisional Coulomb/static friction. Force = constant + coefficient times
   # the sum of the non-negative gauge pressures on both sides. The 2 N/bar
@@ -66,14 +78,10 @@ fluid:
   volumetric_expansion_per_k: 0.0007
   specific_heat_j_kg_k: 1500
   thermal_conductivity_w_m_k: 0.2
-  # Brake-fluid bulk modulus of 19,535 bar reported for a studied fluid;
-  # formulation and operating conditions may differ from this DOT 4 fluid.
-  # https://saemobilus.sae.org/papers/compressible-brake-fluid-turbulent-flow-simulation-experimental-verification-brake-bleeding-performance-improvements-epb-caliper-2018-01-1876
-  bulk_modulus_pa: 1953500000
   # 20 C viscosity is a provisional estimate. DBF455 reports 2.1 mm2/s at
   # 100 C; using the above density and expansion gives about 0.0021 Pa s.
-  # A log-linear interpolation between these points is a provisional future
-  # solver model, not an implemented or experimentally fitted curve.
+  # A log-linear interpolation between these points is used by the solver;
+  # this is a provisional estimate rather than an experimentally fitted curve.
   dynamic_viscosity_pa_s: 0.01
   dynamic_viscosity_pa_s_at_100c: 0.0021
   pipe_roughness_m: 0.000001

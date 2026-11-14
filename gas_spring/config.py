@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from .hydraulics import DigressiveCurve, piston_area
-from .materials import liquid_cv, liquid_density, liquid_viscosity
+from .materials import liquid_internal_energy, liquid_density, liquid_viscosity
 from .mechanics import chamber_volumes, seal_friction_limit
 
 CORE_COLUMNS = ("time_s", "actuator_a_force_n", "actuator_b_force_n", "duct_air_speed_m_s")
@@ -91,8 +91,8 @@ def validate_config(physical, run):
     chamber_volumes(g, actuator_a_m=g["actuator_extension_travel_m"],
                     actuator_b_m=-g["actuator_compression_travel_m"],
                     main_m=g["main_accumulator_expansion_stop_m"])
-    liquid_cv(physical["fluid"])
-    liquid_density(101325.0, 20.0, physical["fluid"])
+    liquid_internal_energy(20.0, physical["fluid"])
+    liquid_density(20.0, physical["fluid"])
     liquid_viscosity(20.0, physical["fluid"])
     gas = physical["gas"]
     if gas.get("type") != "nitrogen" or not 0 < float(gas["specific_gas_constant_j_kg_k"]) < float(gas["specific_heat_cp_j_kg_k"]):
@@ -127,6 +127,9 @@ def validate_config(physical, run):
     for key in ("blowoff_connection_length_m", "blowoff_connection_diameter_m", "actuator_gas_connection_length_m", "actuator_gas_connection_diameter_m"):
         if not np.isfinite(float(g[key])) or float(g[key]) <= 0:
             raise ValueError(f"geometry.{key} must be positive")
+    stiffness = float(physical.get("end_stops", {}).get("stiffness_n_m", 1e7))
+    if not np.isfinite(stiffness) or stiffness <= 0:
+        raise ValueError("end_stops.stiffness_n_m must be positive")
     masses = physical["moving_masses_kg"]
     for key in ("actuator_a", "actuator_b", "blowoff", "main_accumulator"):
         try:
@@ -135,6 +138,30 @@ def validate_config(physical, run):
             raise ValueError(f"moving_masses_kg.{key} must be positive") from exc
         if not np.isfinite(mass) or mass <= 0:
             raise ValueError(f"moving_masses_kg.{key} must be positive")
+    attached_masses = physical.get("attached_masses_kg", {})
+    if not isinstance(attached_masses, dict):
+        raise ValueError("attached_masses_kg must be a mapping")
+    unknown_attached = set(attached_masses) - {"actuator_a", "actuator_b", "blowoff", "main_accumulator"}
+    if unknown_attached:
+        raise ValueError(f"unknown attached_masses_kg entries: {sorted(unknown_attached)}")
+    for key, value in attached_masses.items():
+        try:
+            mass = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"attached_masses_kg.{key} must be non-negative") from exc
+        if isinstance(value, bool) or not np.isfinite(mass) or mass < 0:
+            raise ValueError(f"attached_masses_kg.{key} must be non-negative")
+    solver = run.get("solver", {})
+    if not isinstance(solver, dict):
+        raise ValueError("solver must be a mapping")
+    if solver.get("friction_model", "smooth") != "smooth":
+        raise ValueError("solver.friction_model must be 'smooth'")
+    try:
+        velocity_scale = float(solver.get("friction_velocity_scale_m_s", 0.005))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("solver.friction_velocity_scale_m_s must be positive") from exc
+    if not np.isfinite(velocity_scale) or velocity_scale <= 0:
+        raise ValueError("solver.friction_velocity_scale_m_s must be positive")
     temperatures = run["initial_temperatures_c"]
     for key in ("actuator_a_fluid", "actuator_b_fluid", "actuator_a_gas", "actuator_b_gas",
                 "main_accumulator_fluid", "blowoff_fluid", "main_accumulator_gas",

@@ -48,9 +48,12 @@ solver:
   relative_tolerance: 0.00001
   max_step_s: 0.05
   max_events: 10000
-  # Small numerical breakaway margin above the configured static seal force;
-  # prevents repeated zero-time stick/release events. It is not measured.
-  stiction_release_margin_n: 0.000001
+  # CLI progress interval in simulation seconds; the solver checkpoints here.
+  progress_interval_s: 0.5
+  # Smooth seal friction transitions through zero over this velocity scale.
+  # This replaces ideal static sticking with a small amount of creep.
+  friction_model: smooth
+  friction_velocity_scale_m_s: 0.005
 sensor_locations:
   low_pressure_gas_pressure: low_pressure_reservoir
   low_pressure_gas_temperature: low_pressure_reservoir

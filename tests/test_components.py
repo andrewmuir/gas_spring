@@ -5,6 +5,27 @@ from gas_spring.sensors import Sensor
 from gas_spring.thermal import pipe_heat_rates, actuator_wetted_wall_areas, initial_pipe_temperature_profiles
 from gas_spring.config import load_inputs, validate_config, load_yaml
 from gas_spring.force_input import transfer_force
+from gas_spring.mechanics import smooth_friction_force
+
+
+def test_smooth_friction_is_continuous_odd_and_dissipative():
+    velocities = np.array([-0.1, -0.005, -1e-9, 0.0, 1e-9, 0.005, 0.1])
+    friction = np.array([smooth_friction_force(v, 200.0, 0.005) for v in velocities])
+    np.testing.assert_allclose(friction, -friction[::-1])
+    assert friction[3] == 0.0
+    assert np.all(friction * velocities >= 0)
+    assert np.max(np.abs(friction)) <= 200.0
+    assert abs(friction[2]) < 0.001
+    with pytest.raises(ValueError, match="velocity scale"):
+        smooth_friction_force(0.1, 200.0, 0.0)
+
+
+def test_invalid_smooth_friction_configuration_is_rejected():
+    physical = load_yaml('config/physical.yaml')
+    run = load_yaml('config/run.yaml')
+    run['solver']['friction_velocity_scale_m_s'] = 0
+    with pytest.raises(ValueError, match='friction_velocity_scale'):
+        validate_config(physical, run)
 
 def test_damper_matches_points_and_is_dissipative():
     a = piston_area(.038, .014)

@@ -29,7 +29,7 @@ def isolated_actuator_warmup(physical, run, actuator="actuator_a", duration_s=18
     gas_volume = ag*g["actuator_gas_chamber_length_at_zero_m"] + g["actuator_gas_dead_volume_m3"]
     liquid_p = ATMOSPHERIC_PRESSURE_PA + run["initial_gas_gauge_pressure_bar"]["main"]*1e5
     gas_p = ATMOSPHERIC_PRESSURE_PA + run["initial_gas_gauge_pressure_bar"]["low"]*1e5
-    fluid_mass = fluid_volume*float(liquid_density(liquid_p, t[actuator+"_fluid"], fluid))
+    fluid_mass = fluid_volume*float(liquid_density(t[actuator+"_fluid"], fluid))
     gas_mass = float(nitrogen_mass(gas_p, gas_volume, t[actuator+"_gas"], gas))
     fraction = th["gas_boundary_mass_fraction"]
     cv = gas["specific_heat_cp_j_kg_k"]-gas["specific_gas_constant_j_kg_k"]

@@ -1,4 +1,4 @@
-"""Construct zero-flow, force-balanced reference states for a future solver."""
+"""Construct zero-flow reference states for the incompressible solver."""
 import math
 import numpy as np
 
@@ -42,17 +42,16 @@ def initialize_system(physical, run, first_force_a_n, first_force_b_n,
     if not math.isfinite(cv) or cv <= 0:
         raise ValueError("nitrogen heat capacity at constant volume must be positive")
     liquid = {key: {"volume_m3": volumes[key], "temperature_c": temp,
-                    "mass_kg": float(volumes[key] * liquid_density(liquid_p, temp, physical["fluid"]))}
+                    "mass_kg": float(volumes[key] * liquid_density(temp, physical["fluid"]))}
               for key, temp in fluid_temp.items()}
     for key, temp in (("hydraulic_inlet_junction", np.mean([t["actuator_a_fluid"], t["actuator_b_fluid"]])),
                       ("hydraulic_outlet_junction", np.mean([t["main_accumulator_fluid"], t["blowoff_fluid"]]))):
         volume = geom["hydraulic_junction_volume_m3"]
         liquid[key] = {"volume_m3": volume, "temperature_c": float(temp),
-                       "mass_kg": float(volume * liquid_density(liquid_p, temp, physical["fluid"]))}
+                       "mass_kg": float(volume * liquid_density(temp, physical["fluid"]))}
     for chamber in liquid.values():
-        density = chamber["mass_kg"] / chamber["volume_m3"]
         chamber["internal_energy_j"] = float(chamber["mass_kg"] * liquid_internal_energy(
-            chamber["temperature_c"], density, physical["fluid"]))
+            chamber["temperature_c"], physical["fluid"]))
     liquid_fraction = physical["thermal"]["liquid_boundary_mass_fraction"]
     if not 0 < liquid_fraction < 1:
         raise ValueError("liquid boundary mass fraction must be between zero and one")
@@ -85,8 +84,8 @@ def initialize_system(physical, run, first_force_a_n, first_force_b_n,
     ):
         cell_volume = math.pi / 4 * diameter**2 * length / pipe_cells
         if name == "hydraulic":
-            mass = cell_volume * liquid_density(liquid_p, temp, physical["fluid"])
-            energy = mass * liquid_internal_energy(temp, mass / cell_volume, physical["fluid"])
+            mass = cell_volume * liquid_density(temp, physical["fluid"])
+            energy = mass * liquid_internal_energy(temp, physical["fluid"])
         else:
             mass = nitrogen_mass(p_gas["low_pressure_reservoir_gas"], cell_volume, temp, physical["gas"])
             energy = mass * cv * (temp + 273.15)

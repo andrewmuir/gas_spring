@@ -9,6 +9,53 @@ import math
 from .hydraulics import piston_area
 
 
+def effective_piston_mass_kg(physical, name):
+    """Return piston plus any rigidly attached external mass for dynamics."""
+    piston_mass = float(physical["moving_masses_kg"][name])
+    attached_mass = float(physical.get("attached_masses_kg", {}).get(name, 0.0))
+    return piston_mass + attached_mass
+
+
+def end_stop_response(position_m, lower_stop_m, upper_stop_m, stiffness_n_m,
+                      lower_preload_n=0.0):
+    """Unilateral elastic stop forces and stored strain energy.
+
+    Lower preload describes a stop already deflected at the initial piston
+    reference. Its unloaded contact surface is preload/stiffness above that
+    reference. Contact can recover and separate without a velocity reset.
+    """
+    if (not all(math.isfinite(float(v)) for v in
+                (position_m, stiffness_n_m, lower_preload_n))
+            or stiffness_n_m <= 0 or lower_preload_n < 0):
+        raise ValueError("end-stop stiffness must be positive and preload non-negative")
+    if any(v is not None and not math.isfinite(float(v)) for v in (lower_stop_m, upper_stop_m)):
+        raise ValueError("end-stop locations must be finite")
+    if lower_stop_m is not None and upper_stop_m is not None and lower_stop_m >= upper_stop_m:
+        raise ValueError("lower stop must be below upper stop")
+    if lower_stop_m is None and lower_preload_n:
+        raise ValueError("lower preload requires a lower stop")
+    lower = (max(0.0, lower_stop_m + lower_preload_n/stiffness_n_m - position_m)
+             if lower_stop_m is not None else 0.0)
+    upper = max(0.0, position_m-upper_stop_m) if upper_stop_m is not None else 0.0
+    return {"force_n": stiffness_n_m*(lower-upper),
+            "lower_deflection_m": lower, "upper_deflection_m": upper,
+            "energy_j": 0.5*stiffness_n_m*(lower*lower+upper*upper)}
+
+
+def smooth_friction_force(velocity_m_s, limit_n, velocity_scale_m_s):
+    """Return a continuous friction force acting in the direction of velocity.
+
+    Subtract the returned force from the piston drive. At zero speed the force
+    is zero, so this approximates seal friction with creep rather than static
+    sticking. The velocity scale sets the width of the transition through zero.
+    """
+    if not all(math.isfinite(float(v)) for v in (velocity_m_s, limit_n, velocity_scale_m_s)):
+        raise ValueError("invalid smooth friction parameters")
+    if limit_n < 0 or velocity_scale_m_s <= 0:
+        raise ValueError("friction limit must be non-negative and velocity scale positive")
+    return float(limit_n) * math.tanh(float(velocity_m_s) / float(velocity_scale_m_s))
+
+
 def chamber_volumes(geometry, actuator_a_m=0.0, actuator_b_m=0.0,
                     main_m=0.0, blowoff_m=0.0):
     """Volumes in m3 using current piston positions and zero-reference sizes.

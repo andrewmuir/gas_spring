@@ -1,118 +1,387 @@
-"""Instantaneous coupled circuit and piston rates, without time integration."""
-from .circuit import hydraulic_rates, nitrogen_rates
-from .hydraulics import piston_area
-from .materials import ATMOSPHERIC_PRESSURE_PA
-from .mechanics import chamber_volumes, piston_acceleration, seal_friction_limit
+"""Incompressible thermal transport and constrained piston dynamics."""
+
+import copy
+import numpy as np
+from .circuit import nitrogen_rates
+from .hydraulics import (
+    piston_area,
+    DigressiveCurve,
+    regularized_restriction_pressure_drop,
+    pipe_pressure_drop,
+)
+from .materials import liquid_temperatures, liquid_density, liquid_viscosity
+from .incompressible import (
+    liquid_piston_areas,
+    hydraulic_flows_m3_s,
+    constrained_accelerations,
+)
 from .thermal_coupling import thermal_exchange
+from .mechanics import end_stop_response
+from .materials import ATMOSPHERIC_PRESSURE_PA
+
+PISTONS = ("actuator_a", "actuator_b", "main_accumulator", "blowoff")
+LIQUID_PISTONS = dict(
+    zip(
+        PISTONS, ("actuator_a_fluid", "actuator_b_fluid", "main_fluid", "blowoff_fluid")
+    )
+)
+GAS_PISTONS = dict(
+    zip(PISTONS, ("actuator_a_gas", "actuator_b_gas", "main_gas", "blowoff_gas"))
+)
 
 
-def coupled_rates(physical, run, liquid_nodes, gas_nodes, pipe_flows_m3_s,
-                  positions_m, velocities_m_s, input_forces_n,
-                  solid_temperatures_c=None, hot_ambient_c=None, duct_air_speed_m_s=None,
-                  contact_modes=None):
-    """Assemble hydropneumatic and mechanical rates at one instant.
+class IncompressibleSystem:
+    def __init__(
+        self, physical, run, cells, initial_liquid, initial_liquid_pressure_pa=None
+    ):
+        self.physical, self.run, self.cells = physical, run, cells
+        self.g, self.fluid = physical["geometry"], physical["fluid"]
+        af, am, ab = liquid_piston_areas(self.g)
+        self.j = dict(zip(PISTONS, (-af, -af, -am, ab)))
+        self.beta = self.fluid["volumetric_expansion_per_k"] / (
+            self.fluid["density_kg_m3_at_20c"] * self.fluid["specific_heat_j_kg_k"]
+        )
+        self.stop_stiffness = float(
+            physical.get("end_stops", {}).get("stiffness_n_m", 1e7)
+        )
+        self.stop_bounds = {
+            "actuator_a": (
+                -self.g["actuator_compression_travel_m"],
+                self.g["actuator_extension_travel_m"],
+            ),
+            "actuator_b": (
+                -self.g["actuator_compression_travel_m"],
+                self.g["actuator_extension_travel_m"],
+            ),
+            "main_accumulator": (None, self.g["main_accumulator_expansion_stop_m"]),
+            "blowoff": (0.0, run["blowoff_max_travel_m"]),
+        }
+        # The zero blow-off position is the initially loaded reference. Keep
+        # its gas preload in equilibrium instead of launching a startup impact.
+        ph = (
+            initial_liquid_pressure_pa - ATMOSPHERIC_PRESSURE_PA
+            if initial_liquid_pressure_pa is not None
+            else run["initial_gas_gauge_pressure_bar"]["main"] * 1e5
+        )
+        pg = run["initial_gas_gauge_pressure_bar"]["blowoff"] * 1e5
+        self.lower_preloads = {n: 0.0 for n in PISTONS}
+        self.lower_preloads["blowoff"] = max(
+            0.0, pg * piston_area(self.g["blowoff_piston_diameter_m"]) - ph * ab
+        )
+        self.initial_energy = sum(
+            n["internal_energy_j"] for n in initial_liquid.values()
+        )
+        self.curves = {}
+        for label in ("actuator", "accumulator_inlet"):
+            curves = []
+            for direction in ("compression", "extension"):
+                points = physical["restrictions"][label][direction]
+                curves.append(
+                    DigressiveCurve.from_points(
+                        af,
+                        *[
+                            points[key][i]
+                            for i in range(2)
+                            for key in ("speed_m_s", "force_n")
+                        ],
+                    )
+                )
+            self.curves[label] = curves
+        self.path = [
+            "hydraulic_inlet_junction",
+            *[f"hydraulic_pipe_{i}" for i in range(cells)],
+            "hydraulic_outlet_junction",
+        ]
 
-    With solid temperatures and environmental inputs supplied, computes
-    thermal exchange and wall rates too. The caller integrates the result and
-    resolves impacts and friction zero crossings.
-    Actuator compression forces are positive, while actuator position is
-    positive in extension. At the instant of an outward impact, this function
-    rejects the state so that an event handler can resolve the impact.
-    """
-    g = physical["geometry"]
-    names = ("actuator_a", "actuator_b", "main_accumulator", "blowoff")
-    pos = {name: float(positions_m[name]) for name in names}
-    vel = {name: float(velocities_m_s[name]) for name in names}
-    if contact_modes is not None:
-        # Implicit solvers may evaluate just outside an event surface while
-        # locating it. Evaluate volumes at the surface and let the event
-        # handler project the accepted state and resolve the impact.
-        pos["actuator_a"] = min(max(pos["actuator_a"], -g["actuator_compression_travel_m"]), g["actuator_extension_travel_m"])
-        pos["actuator_b"] = min(max(pos["actuator_b"], -g["actuator_compression_travel_m"]), g["actuator_extension_travel_m"])
-        pos["blowoff"] = min(max(pos["blowoff"], 0), run["blowoff_max_travel_m"])
-        pos["main_accumulator"] = min(pos["main_accumulator"], g["main_accumulator_expansion_stop_m"])
-        for name in names:
-            if contact_modes[name] == 0:
-                vel[name] = 0.0
-    volumes = chamber_volumes(g, pos["actuator_a"], pos["actuator_b"],
-                              pos["main_accumulator"], pos["blowoff"])
-    af = piston_area(g["actuator_piston_diameter_m"], g["actuator_shaft_diameter_m"])
-    ag = piston_area(g["actuator_piston_diameter_m"])
-    am = piston_area(g["main_accumulator_piston_diameter_m"])
-    bf = piston_area(g["blowoff_piston_diameter_m"], g["blowoff_shaft_diameter_m"])
-    bg = piston_area(g["blowoff_piston_diameter_m"])
-    liquid = {name: dict(node) for name, node in liquid_nodes.items()}
-    gas = {name: dict(node) for name, node in gas_nodes.items()}
-    for name in ("actuator_a", "actuator_b"):
-        liquid[name+"_fluid"].update(volume_m3=volumes[name+"_fluid"], volume_rate_m3_s=-af*vel[name])
-        gas[name+"_gas"].update(volume_m3=volumes[name+"_gas"], volume_rate_m3_s=ag*vel[name])
-    liquid["main_fluid"].update(volume_m3=volumes["main_fluid"], volume_rate_m3_s=-am*vel["main_accumulator"])
-    gas["main_gas"].update(volume_m3=volumes["main_gas"], volume_rate_m3_s=am*vel["main_accumulator"])
-    liquid["blowoff_fluid"].update(volume_m3=volumes["blowoff_fluid"], volume_rate_m3_s=bf*vel["blowoff"])
-    gas["blowoff_gas"].update(volume_m3=volumes["blowoff_gas"], volume_rate_m3_s=-bg*vel["blowoff"])
-    thermal = None
-    if solid_temperatures_c is not None:
-        if hot_ambient_c is None or duct_air_speed_m_s is None:
-            raise ValueError("thermal exchange requires hot ambient and duct air speed")
-        thermal = thermal_exchange(physical, run, liquid, gas, solid_temperatures_c,
-                                   pos, hot_ambient_c, duct_air_speed_m_s)
-        for name, heat in thermal["liquid_heat_w"].items():
-            liquid[name]["heat_rate_w"] = float(liquid[name].get("heat_rate_w", 0)) + heat
-            if name in thermal["liquid_boundary_heat_w"]:
-                liquid[name]["boundary_heat_rate_w"] = thermal["liquid_boundary_heat_w"][name]
-        for name, heat in thermal["gas_heat_w"].items():
-            gas[name]["heat_rate_w"] = float(gas[name].get("heat_rate_w", 0)) + heat
-            if name in thermal["gas_boundary_heat_w"]:
-                gas[name]["boundary_heat_rate_w"] = thermal["gas_boundary_heat_w"][name]
-    liquid_result = hydraulic_rates(liquid, pipe_flows_m3_s, physical)
-    gas_result = nitrogen_rates(gas, len(pipe_flows_m3_s)-1, physical)
-    hp, gp = liquid_result["pressures_pa"], gas_result["pressures_pa"]
-    ambient = ATMOSPHERIC_PRESSURE_PA
-    forces = {
-        "actuator_a": (gp["actuator_a_gas"]-ambient)*ag - (hp["actuator_a_fluid"]-ambient)*af - float(input_forces_n["actuator_a"]),
-        "actuator_b": (gp["actuator_b_gas"]-ambient)*ag - (hp["actuator_b_fluid"]-ambient)*af - float(input_forces_n["actuator_b"]),
-        "main_accumulator": ((gp["main_gas"]-ambient)-(hp["main_fluid"]-ambient))*am,
-        "blowoff": (hp["blowoff_fluid"]-ambient)*bf - (gp["blowoff_gas"]-ambient)*bg,
-    }
-    limits = {
-        "actuator_a": seal_friction_limit(hp["actuator_a_fluid"]-ambient, gp["actuator_a_gas"]-ambient, physical["seal_friction"]["actuator"]),
-        "actuator_b": seal_friction_limit(hp["actuator_b_fluid"]-ambient, gp["actuator_b_gas"]-ambient, physical["seal_friction"]["actuator"]),
-        "main_accumulator": seal_friction_limit(hp["main_fluid"]-ambient, gp["main_gas"]-ambient, physical["seal_friction"]["main_accumulator"]),
-        "blowoff": seal_friction_limit(hp["blowoff_fluid"]-ambient, gp["blowoff_gas"]-ambient, physical["seal_friction"]["blowoff"]),
-    }
-    stops = {
-        "actuator_a": (-g["actuator_compression_travel_m"], g["actuator_extension_travel_m"]),
-        "actuator_b": (-g["actuator_compression_travel_m"], g["actuator_extension_travel_m"]),
-        "main_accumulator": (None, g["main_accumulator_expansion_stop_m"]),
-        "blowoff": (0.0, run["blowoff_max_travel_m"]),
-    }
-    kinetic_ratio = float(physical["seal_friction"]["kinetic_to_static_ratio"])
-    if not 0 <= kinetic_ratio <= 1:
-        raise ValueError("kinetic_to_static_ratio must be between zero and one")
-    if contact_modes is None:
-        acceleration = {name: piston_acceleration(pos[name], vel[name], forces[name], limits[name],
-                                                   physical["moving_masses_kg"][name], *stops[name],
-                                                   kinetic_friction_limit_n=limits[name]*kinetic_ratio)
-                        for name in names}
-        friction_heat = {name: limits[name] * kinetic_ratio * abs(vel[name]) for name in names}
-    else:
-        if any(contact_modes[name] not in (-1, 0, 1) for name in names):
-            raise ValueError("contact modes must be -1, 0 or 1")
-        acceleration = {name: (forces[name] - contact_modes[name]*kinetic_ratio*limits[name]) / physical["moving_masses_kg"][name]
-                        if contact_modes[name] else 0.0 for name in names}
-        friction_heat = {name: limits[name] * kinetic_ratio * max(0.0, contact_modes[name]*vel[name]) for name in names}
-    if thermal is not None:
-        for name, prefix in (("actuator_a", "actuator_a"), ("actuator_b", "actuator_b"),
-                             ("main_accumulator", "main"), ("blowoff", "blowoff")):
+    def stop_responses(self, positions):
+        return {
+            n: end_stop_response(
+                positions[n],
+                *self.stop_bounds[n],
+                self.stop_stiffness,
+                self.lower_preloads[n],
+            )
+            for n in PISTONS
+        }
+
+    def expansion(self, liquid):
+        return self.beta * (
+            sum(n["internal_energy_j"] for n in liquid.values()) - self.initial_energy
+        )
+
+    def volumes(self, s):
+        from .mechanics import chamber_volumes
+
+        pos = dict(s["position"])
+        volumes = chamber_volumes(self.g, *[pos[n] for n in PISTONS])
+        for group in ("liquid", "gas"):
+            for name, node in s[group].items():
+                if name in volumes:
+                    node["volume_m3"] = volumes[name]
+        ag = piston_area(self.g["actuator_piston_diameter_m"])
+        bg = piston_area(self.g["blowoff_piston_diameter_m"])
+        gas_vdot = dict(zip(PISTONS, (ag, ag, -self.j["main_accumulator"], -bg)))
+        for name in PISTONS:
+            s["gas"][GAS_PISTONS[name]]["volume_rate_m3_s"] = (
+                gas_vdot[name] * s["velocity"][name]
+            )
+        return pos
+
+    def loss_heat(self, velocities, sources, temperatures):
+        flows = hydraulic_flows_m3_s(self.g, velocities, sources, self.cells)
+        heat = {n: 0.0 for n in temperatures}
+        links = []
+        tail = self.physical["restrictions"]["high_flow_tail_fraction"]
+        for piston in PISTONS:
+            chamber = LIQUID_PISTONS[piston]
+            junction = self.path[0] if piston.startswith("actuator") else self.path[-1]
+            q = flows[piston]
+            if piston == "blowoff":
+                dp = pipe_pressure_drop(
+                    q,
+                    self.fluid["density_kg_m3_at_20c"],
+                    float(
+                        liquid_viscosity(
+                            (temperatures[chamber] + temperatures[junction]) / 2,
+                            self.fluid,
+                        )
+                    ),
+                    self.g["blowoff_connection_length_m"],
+                    self.g["blowoff_connection_diameter_m"],
+                    self.fluid["pipe_roughness_m"],
+                )
+            else:
+                label = (
+                    "actuator" if piston.startswith("actuator") else "accumulator_inlet"
+                )
+                dp = regularized_restriction_pressure_drop(
+                    q, *self.curves[label], tail, zero_flow_transition_m3_s=1e-11
+                )
+            power = q * dp
+            heat[chamber] += power / 2
+            heat[junction] += power / 2
+            links.append((junction, chamber, q))
+        for i, q in enumerate(flows["pipe"]):
+            a, b = self.path[i : i + 2]
+            length = (
+                self.g["hydraulic_pipe_length_m"]
+                / self.cells
+                * (0.5 if i in (0, self.cells) else 1)
+            )
+            dp = pipe_pressure_drop(
+                q,
+                self.fluid["density_kg_m3_at_20c"],
+                float(
+                    liquid_viscosity(
+                        (temperatures[a] + temperatures[b]) / 2, self.fluid
+                    )
+                ),
+                length,
+                self.g["hydraulic_pipe_diameter_m"],
+                self.fluid["pipe_roughness_m"],
+            )
+            heat[a] += q * dp / 2
+            heat[b] += q * dp / 2
+            links.append((a, b, q))
+        return flows, heat, links
+
+    def thermal_state(self, s, u, dependent=None):
+        pos = self.volumes(s)
+        thermal = thermal_exchange(
+            self.physical,
+            self.run,
+            s["liquid"],
+            s["gas"],
+            s["solid"],
+            pos,
+            u["hot_ambient_c"],
+            u["duct_air_speed_m_s"],
+        )
+        temperatures = {
+            n: liquid_temperatures(
+                node["mass_kg"],
+                node["internal_energy_j"],
+                self.fluid,
+                node.get("boundary_energy_j"),
+                node.get("boundary_mass_fraction"),
+            )[1]
+            for n, node in s["liquid"].items()
+        }
+        sources = {n: self.beta * q for n, q in thermal["liquid_heat_w"].items()}
+        for iteration in range(20):
+            if dependent is not None:
+                s["velocity"][dependent] = (
+                    sum(sources.values())
+                    - sum(
+                        self.j[n] * s["velocity"][n] for n in PISTONS if n != dependent
+                    )
+                ) / self.j[dependent]
+            flows, losses, links = self.loss_heat(s["velocity"], sources, temperatures)
+            updated = {
+                n: self.beta * (thermal["liquid_heat_w"][n] + losses[n])
+                for n in sources
+            }
+            error = max(abs(updated[n] - sources[n]) for n in sources)
+            sources = updated
+            if error < 1e-15:
+                break
+        else:
+            raise RuntimeError("thermal volume/flow iteration did not converge")
+        if dependent is not None:
+            s["velocity"][dependent] = (
+                sum(sources.values())
+                - sum(self.j[n] * s["velocity"][n] for n in PISTONS if n != dependent)
+            ) / self.j[dependent]
+        flows, losses, links = self.loss_heat(s["velocity"], sources, temperatures)
+        rates = {
+            n: {
+                "mass_rate_kg_s": 0.0,
+                "energy_rate_w": thermal["liquid_heat_w"][n] + losses[n],
+            }
+            for n in s["liquid"]
+        }
+        mass_links = []
+        for a, b, q in links:
+            weight = 0.5 * (1 + np.tanh(q / 1e-11))
+            transported_temperature = (
+                weight * temperatures[a] + (1 - weight) * temperatures[b]
+            )
+            mass_flow = q * float(liquid_density(transported_temperature, self.fluid))
+            energy_flow = (
+                mass_flow
+                * self.fluid["specific_heat_j_kg_k"]
+                * (transported_temperature - 20)
+            )
+            rates[a]["mass_rate_kg_s"] -= mass_flow
+            rates[b]["mass_rate_kg_s"] += mass_flow
+            rates[a]["energy_rate_w"] -= energy_flow
+            rates[b]["energy_rate_w"] += energy_flow
+            mass_links.append((a, b, mass_flow))
+        for n, node in s["liquid"].items():
+            if "boundary_mass_fraction" in node:
+                f = node["boundary_mass_fraction"]
+                exchange = f * rates[n]["mass_rate_kg_s"]
+                boundary_t = liquid_temperatures(
+                    node["mass_kg"],
+                    node["internal_energy_j"],
+                    self.fluid,
+                    node["boundary_energy_j"],
+                    f,
+                )[2]
+                energy = self.fluid["specific_heat_j_kg_k"] * (
+                    (
+                        0.5 * (1 + np.tanh(exchange / 1e-8)) * temperatures[n]
+                        + 0.5 * (1 - np.tanh(exchange / 1e-8)) * boundary_t
+                    )
+                    - 20
+                )
+                rates[n]["boundary_energy_rate_w"] = (
+                    exchange * energy
+                    + thermal["liquid_boundary_heat_w"][n]
+                    + f * losses[n]
+                )
+        # Gas chamber volume rates must use the reconstructed velocity.
+        self.volumes(s)
+        for n, q in thermal["gas_heat_w"].items():
+            s["gas"][n]["heat_rate_w"] = q
+            if n in thermal["gas_boundary_heat_w"]:
+                s["gas"][n]["boundary_heat_rate_w"] = thermal["gas_boundary_heat_w"][n]
+        gas = nitrogen_rates(s["gas"], self.cells, self.physical)
+        return {
+            "sources": sources,
+            "flows": flows,
+            "losses": losses,
+            "thermal": thermal,
+            "liquid": {
+                "node_rates": rates,
+                "mass_flows_kg_s": mass_links,
+                "temperatures_c": temperatures,
+            },
+            "gas": gas,
+        }
+
+    def evaluate(self, s, u, dependent="main_accumulator", derivatives=True):
+        tstate = self.thermal_state(s, u, dependent)
+        sources = tstate["sources"]
+        gp = {n: tstate["gas"]["pressures_pa"][GAS_PISTONS[n]] for n in PISTONS}
+        forces = {n: u[n + "_force_n"] for n in ("actuator_a", "actuator_b")}
+        args = (self.physical, s["velocity"], gp, forces, sources, {}, self.cells)
+        stops = self.stop_responses(s["position"])
+        kwargs = dict(
+            external_piston_forces_n={
+                n: response["force_n"] for n, response in stops.items()
+            },
+            temperatures_c=tstate["liquid"]["temperatures_c"],
+            friction_velocity_scale_m_s=self.run.get("solver", {}).get(
+                "friction_velocity_scale_m_s", 0.005
+            ),
+            allow_nonpositive_pressure=True,
+        )
+        mechanics = constrained_accelerations(*args, **kwargs)
+        # Frictional work heats the two piston faces equally.
+        for name in PISTONS:
+            power = mechanics["friction_force_n"][name] * s["velocity"][name]
+            prefix = "main" if name == "main_accumulator" else name
+            cap = (
+                self.physical["moving_masses_kg"][name]
+                * self.physical["thermal"]["metal_specific_heat_j_kg_k"]
+                / 2
+            )
             for side in ("fluid", "gas"):
                 key = f"{prefix}_piston_{side}"
-                power = friction_heat[name]/2
-                thermal["solid_heat_w"][key] += power
-                heat_capacity = physical["moving_masses_kg"][name] * physical["thermal"]["metal_specific_heat_j_kg_k"]/2
-                thermal["solid_temperature_rate_c_s"][key] += power/heat_capacity
-    return {
-        "liquid": liquid_result, "gas": gas_result,
-        "position_rate_m_s": vel, "velocity_rate_m_s2": acceleration,
-        "piston_drive_force_n": forces, "piston_friction_limit_n": limits,
-        "piston_friction_heat_w": friction_heat, "thermal": thermal,
-    }
+                tstate["thermal"]["solid_heat_w"][key] += power / 2
+                tstate["thermal"]["solid_temperature_rate_c_s"][key] += power / (
+                    2 * cap
+                )
+        if derivatives and self.beta:
+            eps = 1e-5
+            shifted = copy.deepcopy(s)
+            for n in PISTONS:
+                shifted["position"][n] += eps * s["velocity"][n]
+            for group in ("liquid", "gas"):
+                for n, node in shifted[group].items():
+                    for field, key in (
+                        ("mass_kg", "mass_rate_kg_s"),
+                        ("internal_energy_j", "energy_rate_w"),
+                        ("boundary_energy_j", "boundary_energy_rate_w"),
+                    ):
+                        if field in node:
+                            node[field] += eps * tstate[group]["node_rates"][n][key]
+            for n, rate in tstate["thermal"]["solid_temperature_rate_c_s"].items():
+                shifted["solid"][n] = shifted["solid"][n] + eps * rate
+            future = self.thermal_state(shifted, u)["sources"]
+            base = {n: (future[n] - sources[n]) / eps for n in sources}
+            jac = {n: np.zeros(4) for n in sources}
+            for i, name in enumerate(PISTONS):
+                shifted_v = dict(s["velocity"])
+                shifted_v[name] += eps
+                shifted_sources = dict(sources)
+                for _ in range(20):
+                    _, losses, _ = self.loss_heat(
+                        shifted_v, shifted_sources, tstate["liquid"]["temperatures_c"]
+                    )
+                    updated = {
+                        n: self.beta
+                        * (tstate["thermal"]["liquid_heat_w"][n] + losses[n])
+                        for n in sources
+                    }
+                    error = max(abs(updated[n] - shifted_sources[n]) for n in sources)
+                    shifted_sources = updated
+                    if error < 1e-15:
+                        break
+                for n in sources:
+                    jac[n][i] = (shifted_sources[n] - sources[n]) / eps
+
+            def source_rates(acceleration):
+                return {n: base[n] + float(jac[n] @ acceleration) for n in sources}
+
+            mechanics = constrained_accelerations(
+                *args, source_rate_function=source_rates, **kwargs
+            )
+        return {
+            **tstate,
+            "mechanics": mechanics,
+            "end_stops": stops,
+            "position_rate_m_s": s["velocity"],
+            "velocity_rate_m_s2": mechanics["acceleration_m_s2"],
+        }
