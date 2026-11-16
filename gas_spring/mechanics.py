@@ -1,6 +1,7 @@
 """Geometry, seal friction and static initialization building blocks.
 
-Actuator x > 0 means extension. Main accumulator x > 0 expands its gas.
+Actuator x > 0 means extension; positive applied load drives extension.
+Main accumulator x > 0 expands its gas.
 Blow-off x > 0 compresses its gas, measured from its zero stop.
 """
 from dataclasses import dataclass
@@ -159,9 +160,9 @@ def initial_static_equilibrium(physical, run, first_force_a_n, first_force_b_n):
     cases = {
         # Extension shrinks the fluid chamber and expands the gas chamber.
         # Fluid pressure therefore pushes toward compression; gas pressure
-        # pushes toward extension. Input force is positive in compression.
-        "actuator_a": (-aa, ag * low - float(first_force_a_n), low, seals["actuator"], False),
-        "actuator_b": (-aa, ag * low - float(first_force_b_n), low, seals["actuator"], False),
+        # pushes toward extension. Positive applied load also drives extension.
+        "actuator_a": (-aa, ag * low + float(first_force_a_n), low, seals["actuator"], False),
+        "actuator_b": (-aa, ag * low + float(first_force_b_n), low, seals["actuator"], False),
         "main_accumulator": (-ma, ma * main, main, seals["main_accumulator"], False),
         "blowoff": (ba, -bg * blow, blow, seals["blowoff"], True),
     }

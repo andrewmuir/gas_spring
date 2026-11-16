@@ -67,7 +67,7 @@ def test_incompressible_pressure_solution_constrains_acceleration():
         "main_accumulator": ATMOSPHERIC_PRESSURE_PA + gauge["main"] * 1e5,
         "blowoff": ATMOSPHERIC_PRESSURE_PA + gauge["blowoff"] * 1e5,
     }
-    balance = 1e5 * (gauge["low"] * ag - gauge["main"] * af)
+    balance = 1e5 * (gauge["main"] * af - gauge["low"] * ag)
     velocities = {
         "actuator_a": 0.0,
         "actuator_b": 0.0,
@@ -88,10 +88,10 @@ def test_incompressible_pressure_solution_constrains_acceleration():
     assert -af * (a["actuator_a"] + a["actuator_b"]) - am * a[
         "main_accumulator"
     ] + ab * a["blowoff"] == pytest.approx(0, abs=1e-12)
-    assert a["actuator_a"] < 0
-    assert a["main_accumulator"] > 0
+    assert a["actuator_a"] > 0
+    assert a["main_accumulator"] < 0
     assert a["blowoff"] == pytest.approx(0, abs=1e-12)
-    assert min(state["pressures_pa"].values()) > 0
+    assert state["pressures_pa"]["actuator_a"] > gas["main_accumulator"]
 
 
 def test_independent_main_accumulator_velocity_is_rejected():
@@ -113,7 +113,7 @@ def test_independent_main_accumulator_velocity_is_rejected():
             physical,
             velocity,
             gas,
-            {"actuator_a": -1729.0, "actuator_b": -1729.0},
+            {"actuator_a": 1729.0, "actuator_b": 1729.0},
             {},
             {},
             1,
@@ -132,7 +132,7 @@ def test_stopped_main_accumulator_shares_volume_motion_between_actuators():
         "blowoff": 8101325.0,
     }
     velocities = {name: 0.0 for name in gas}
-    balance = 15e5 * piston_area(geometry["actuator_piston_diameter_m"]) - 35e5 * af
+    balance = 35e5 * af - 15e5 * piston_area(geometry["actuator_piston_diameter_m"])
     state = constrained_accelerations(
         physical,
         velocities,
@@ -168,7 +168,7 @@ def test_thermal_expansion_rate_and_acceleration_enter_the_constraint():
         "blowoff": 8101325.0,
     }
     af, _, _ = liquid_piston_areas(geometry)
-    balance = 15e5 * piston_area(geometry["actuator_piston_diameter_m"]) - 35e5 * af
+    balance = 35e5 * af - 15e5 * piston_area(geometry["actuator_piston_diameter_m"])
     state = constrained_accelerations(
         physical,
         velocities,
@@ -194,7 +194,7 @@ def test_pipe_inertia_remains_in_the_constrained_dynamics():
     physical = load_yaml("config/physical.yaml")
     geometry = physical["geometry"]
     af, _, _ = liquid_piston_areas(geometry)
-    balance = 15e5 * piston_area(geometry["actuator_piston_diameter_m"]) - 35e5 * af
+    balance = 35e5 * af - 15e5 * piston_area(geometry["actuator_piston_diameter_m"])
     gas = {
         "actuator_a": 1601325.0,
         "actuator_b": 1601325.0,
@@ -228,7 +228,7 @@ def test_blowoff_connection_fluid_inertia_loads_the_piston():
         "blowoff": 8101325.0,
     }
     velocity = {name: 0.0 for name in gas}
-    balance = 15e5 * piston_area(0.038) - 35e5 * af
+    balance = 35e5 * af - 15e5 * piston_area(0.038)
     preload = 80e5 * piston_area(0.045) - 35e5 * ab
     forces = {"actuator_a": balance, "actuator_b": balance}
     normal = constrained_accelerations(
@@ -300,7 +300,7 @@ def test_main_gas_pressure_has_no_cap_as_compressed_volume_approaches_zero():
 
     physical = load_yaml("config/physical.yaml")
     run = load_yaml("config/run.yaml")
-    initial = initialize_system(physical, run, -1729.0, -1729.0)
+    initial = initialize_system(physical, run, 1729.0, 1729.0)
     node = initial["gas_chambers"]["main_gas"]
     geometry = physical["geometry"]
     area = piston_area(geometry["main_accumulator_piston_diameter_m"])

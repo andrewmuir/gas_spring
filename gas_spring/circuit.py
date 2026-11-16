@@ -52,7 +52,13 @@ def _rates(nodes, links, enthalpies, pressures):
     return result
 
 
-def nitrogen_rates(nodes, pipe_cell_count, physical):
+def nitrogen_rates(
+    nodes,
+    pipe_cell_count,
+    physical,
+    pressure_reference_pa=None,
+    pressure_offsets_pa=None,
+):
     """Rates for the cross-connected actuator gas chambers and reservoir.
 
     Main and blow-off chambers are closed gas nodes. Gas pipe and short
@@ -84,7 +90,11 @@ def nitrogen_rates(nodes, pipe_cell_count, physical):
         p, t = ideal_gas_state(
             node["mass_kg"], node["internal_energy_j"], node["volume_m3"], gas
         )
-        pressures[name] = float(p)
+        pressures[name] = (
+            pressure_reference_pa + pressure_offsets_pa[name]
+            if pressure_offsets_pa is not None and name in pressure_offsets_pa
+            else float(p)
+        )
         if "boundary_mass_fraction" in node:
             f = float(node["boundary_mass_fraction"])
             boundary_u = float(node["boundary_energy_j"])
@@ -107,6 +117,13 @@ def nitrogen_rates(nodes, pipe_cell_count, physical):
             gas["dynamic_viscosity_pa_s_at_25c"],
             length,
             diameter,
+            pressure_difference_pa=(
+                pressure_offsets_pa[a] - pressure_offsets_pa[b]
+                if pressure_offsets_pa is not None
+                and a in pressure_offsets_pa
+                and b in pressure_offsets_pa
+                else None
+            ),
         )
         links.append((a, b, flow))
 

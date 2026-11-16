@@ -1,6 +1,5 @@
 """Incompressible thermal transport and constrained piston dynamics."""
 
-import copy
 import numpy as np
 from .circuit import nitrogen_rates
 from .hydraulics import (
@@ -8,6 +7,8 @@ from .hydraulics import (
     DigressiveCurve,
     regularized_restriction_pressure_drop,
     pipe_pressure_drop,
+    restriction_power_slope,
+    pipe_power_derivatives,
 )
 from .materials import liquid_temperatures, liquid_density, liquid_viscosity
 from .incompressible import (
@@ -15,7 +16,7 @@ from .incompressible import (
     hydraulic_flows_m3_s,
     constrained_accelerations,
 )
-from .thermal_coupling import thermal_exchange
+from .thermal_coupling import thermal_exchange, liquid_heat_rate_derivative
 from .mechanics import end_stop_response
 from .materials import ATMOSPHERIC_PRESSURE_PA
 
@@ -92,6 +93,113 @@ class IncompressibleSystem:
             *[f"hydraulic_pipe_{i}" for i in range(cells)],
             "hydraulic_outlet_junction",
         ]
+
+    def source_rate_affine(self, s, state):
+        """Linear expansion-source acceleration in piston acceleration.
+
+        Differentiate S=beta*(Q+loss(q,T)) and q=B*v+C*S, solving the
+        resulting small linear system instead of differentiating the RHS.
+        """
+        names = tuple(s["liquid"])
+        index = {name: i for i, name in enumerate(names)}
+        links = state["volume_links"]
+        b = np.zeros((len(links), 4))
+        c = np.zeros((len(links), len(names)))
+        h = np.zeros((len(names), len(links)))
+        temperature_power = np.zeros(len(names))
+        # Temperature rates do not depend on piston acceleration.
+        qdot, temperature_rates = liquid_heat_rate_derivative(
+            self.physical,
+            s["liquid"],
+            s["solid"],
+            s["position"],
+            s["velocity"],
+            state["liquid"]["node_rates"],
+            state["thermal"]["solid_temperature_rate_c_s"],
+        )
+        temperatures = state["liquid"]["temperatures_c"]
+        af = -self.j["actuator_a"]
+        viscosity_log_slope = (
+            np.log(
+                self.fluid["dynamic_viscosity_pa_s_at_100c"]
+                / self.fluid["dynamic_viscosity_pa_s"]
+            )
+            / 80
+        )
+        for edge, (a, destination, flow) in enumerate(links):
+            if edge < 4:
+                piston = PISTONS[edge]
+                b[edge, edge] = self.j[piston]
+                c[edge, index[destination]] = -1.0
+            else:
+                pipe_index = edge - 4
+                b[edge, :2] = af
+                for node in (
+                    "actuator_a_fluid",
+                    "actuator_b_fluid",
+                    "hydraulic_inlet_junction",
+                ):
+                    c[edge, index[node]] = 1.0
+                for i in range(pipe_index):
+                    c[edge, index[f"hydraulic_pipe_{i}"]] = 1.0
+            if edge < 3:
+                label = "actuator" if edge < 2 else "accumulator_inlet"
+                power_q = restriction_power_slope(
+                    flow,
+                    *self.curves[label],
+                    self.physical["restrictions"]["high_flow_tail_fraction"],
+                    1e-11,
+                )
+                power_t = 0.0
+            else:
+                if edge == 3:
+                    length, diameter = (
+                        self.g["blowoff_connection_length_m"],
+                        self.g["blowoff_connection_diameter_m"],
+                    )
+                else:
+                    i = edge - 4
+                    length = (
+                        self.g["hydraulic_pipe_length_m"]
+                        / self.cells
+                        * (0.5 if i in (0, self.cells) else 1.0)
+                    )
+                    diameter = self.g["hydraulic_pipe_diameter_m"]
+                temp = (temperatures[a] + temperatures[destination]) / 2
+                dtemp = (temperature_rates[a] + temperature_rates[destination]) / 2
+                viscosity = float(liquid_viscosity(temp, self.fluid))
+                power_q, power_mu = pipe_power_derivatives(
+                    flow,
+                    self.fluid["density_kg_m3_at_20c"],
+                    viscosity,
+                    length,
+                    diameter,
+                    self.fluid["pipe_roughness_m"],
+                )
+                inside = (
+                    20 < temp < 100
+                    or (temp == 20 and dtemp > 0)
+                    or (temp == 100 and dtemp < 0)
+                )
+                power_t = (
+                    power_mu * viscosity * viscosity_log_slope * dtemp
+                    if inside
+                    else 0.0
+                )
+            for node in (a, destination):
+                h[index[node], edge] = power_q / 2
+                temperature_power[index[node]] += power_t / 2
+        matrix = np.eye(len(names)) - self.beta * h @ c
+        rhs = np.column_stack(
+            [
+                self.beta * (np.array([qdot[n] for n in names]) + temperature_power),
+                self.beta * h @ b,
+            ]
+        )
+        solved = np.linalg.solve(matrix, rhs)
+        return lambda acceleration: dict(
+            zip(names, solved[:, 0] + solved[:, 1:] @ acceleration)
+        )
 
     def stop_responses(self, positions):
         return {
@@ -286,9 +394,16 @@ class IncompressibleSystem:
             s["gas"][n]["heat_rate_w"] = q
             if n in thermal["gas_boundary_heat_w"]:
                 s["gas"][n]["boundary_heat_rate_w"] = thermal["gas_boundary_heat_w"][n]
-        gas = nitrogen_rates(s["gas"], self.cells, self.physical)
+        gas = nitrogen_rates(
+            s["gas"],
+            self.cells,
+            self.physical,
+            pressure_reference_pa=s.get("gas_pressure_reference_pa"),
+            pressure_offsets_pa=s.get("gas_pressure_offsets_pa"),
+        )
         return {
             "sources": sources,
+            "volume_links": links,
             "flows": flows,
             "losses": losses,
             "thermal": thermal,
@@ -318,66 +433,46 @@ class IncompressibleSystem:
             allow_nonpositive_pressure=True,
         )
         mechanics = constrained_accelerations(*args, **kwargs)
-        # Frictional work heats the two piston faces equally.
-        for name in PISTONS:
-            power = mechanics["friction_force_n"][name] * s["velocity"][name]
-            prefix = "main" if name == "main_accumulator" else name
-            cap = (
-                self.physical["moving_masses_kg"][name]
-                * self.physical["thermal"]["metal_specific_heat_j_kg_k"]
-                / 2
-            )
-            for side in ("fluid", "gas"):
-                key = f"{prefix}_piston_{side}"
-                tstate["thermal"]["solid_heat_w"][key] += power / 2
-                tstate["thermal"]["solid_temperature_rate_c_s"][key] += power / (
-                    2 * cap
+        base_heat = dict(tstate["thermal"]["solid_heat_w"])
+        base_rates = dict(tstate["thermal"]["solid_temperature_rate_c_s"])
+
+        def friction_heat(result):
+            powers = {
+                name: result["friction_force_n"][name] * s["velocity"][name]
+                for name in PISTONS
+            }
+            for name, power in powers.items():
+                prefix = "main" if name == "main_accumulator" else name
+                capacity = (
+                    self.physical["moving_masses_kg"][name]
+                    * self.physical["thermal"]["metal_specific_heat_j_kg_k"]
+                    / 2
                 )
+                for side in ("fluid", "gas"):
+                    key = f"{prefix}_piston_{side}"
+                    tstate["thermal"]["solid_heat_w"][key] = base_heat[key] + power / 2
+                    tstate["thermal"]["solid_temperature_rate_c_s"][key] = base_rates[
+                        key
+                    ] + power / (2 * capacity)
+            return np.array(list(powers.values()))
+
+        old_power = friction_heat(mechanics)
         if derivatives and self.beta:
-            eps = 1e-5
-            shifted = copy.deepcopy(s)
-            for n in PISTONS:
-                shifted["position"][n] += eps * s["velocity"][n]
-            for group in ("liquid", "gas"):
-                for n, node in shifted[group].items():
-                    for field, key in (
-                        ("mass_kg", "mass_rate_kg_s"),
-                        ("internal_energy_j", "energy_rate_w"),
-                        ("boundary_energy_j", "boundary_energy_rate_w"),
-                    ):
-                        if field in node:
-                            node[field] += eps * tstate[group]["node_rates"][n][key]
-            for n, rate in tstate["thermal"]["solid_temperature_rate_c_s"].items():
-                shifted["solid"][n] = shifted["solid"][n] + eps * rate
-            future = self.thermal_state(shifted, u)["sources"]
-            base = {n: (future[n] - sources[n]) / eps for n in sources}
-            jac = {n: np.zeros(4) for n in sources}
-            for i, name in enumerate(PISTONS):
-                shifted_v = dict(s["velocity"])
-                shifted_v[name] += eps
-                shifted_sources = dict(sources)
-                for _ in range(20):
-                    _, losses, _ = self.loss_heat(
-                        shifted_v, shifted_sources, tstate["liquid"]["temperatures_c"]
-                    )
-                    updated = {
-                        n: self.beta
-                        * (tstate["thermal"]["liquid_heat_w"][n] + losses[n])
-                        for n in sources
-                    }
-                    error = max(abs(updated[n] - shifted_sources[n]) for n in sources)
-                    shifted_sources = updated
-                    if error < 1e-15:
-                        break
-                for n in sources:
-                    jac[n][i] = (shifted_sources[n] - sources[n]) / eps
-
-            def source_rates(acceleration):
-                return {n: base[n] + float(jac[n] @ acceleration) for n in sources}
-
-            mechanics = constrained_accelerations(
-                *args, source_rate_function=source_rates, **kwargs
-            )
+            for _ in range(8):
+                source_rates = self.source_rate_affine(s, tstate)
+                mechanics = constrained_accelerations(
+                    *args, source_rate_function=source_rates, **kwargs
+                )
+                new_power = friction_heat(mechanics)
+                if np.max(abs(new_power - old_power)) <= 1e-10 * (
+                    1 + np.max(abs(new_power))
+                ):
+                    break
+                old_power = new_power
+            else:
+                raise RuntimeError(
+                    "thermal/friction constraint iteration did not converge"
+                )
         return {
             **tstate,
             "mechanics": mechanics,

@@ -96,6 +96,75 @@ def restriction_flow(pressure_drop_pa, compression, extension, tail_fraction=0.9
     return math.copysign(q, pressure_drop_pa)
 
 
+def restriction_power_slope(
+    flow_m3_s, compression, extension, tail_fraction=0.95, zero_flow_transition_m3_s=0.0
+):
+    """Derivative of dissipated power q*dp with respect to signed flow."""
+    q = flow_m3_s
+    pressure = regularized_restriction_pressure_drop(
+        q, compression, extension, tail_fraction, zero_flow_transition_m3_s
+    )
+
+    def slope(curve):
+        cutoff = curve.scale_m3_s * tail_fraction / (1 - tail_fraction)
+        magnitude = min(abs(q), cutoff)
+        return curve.limit_pa * curve.scale_m3_s / (curve.scale_m3_s + magnitude) ** 2
+
+    if zero_flow_transition_m3_s:
+        transition = math.tanh(q / zero_flow_transition_m3_s)
+        weight = 0.5 * (1 + transition)
+        pc = regularized_restriction_pressure_drop(
+            q, compression, compression, tail_fraction
+        )
+        pe = regularized_restriction_pressure_drop(
+            q, extension, extension, tail_fraction
+        )
+        derivative = weight * slope(compression) + (1 - weight) * slope(extension)
+        derivative += (
+            0.5 * (1 - transition * transition) * (pc - pe) / zero_flow_transition_m3_s
+        )
+    else:
+        derivative = slope(compression if q >= 0 else extension)
+    return pressure + q * derivative
+
+
+def pipe_power_derivatives(
+    flow_m3_s, density_kg_m3, viscosity_pa_s, length_m, diameter_m, roughness_m=1e-6
+):
+    """Derivatives of Darcy dissipation with respect to flow and viscosity."""
+    if min(density_kg_m3, viscosity_pa_s, length_m, diameter_m) <= 0 or roughness_m < 0:
+        raise ValueError("invalid pipe or fluid properties")
+    q = abs(flow_m3_s)
+    if q == 0:
+        return 0.0, 0.0
+    area = math.pi * diameter_m**2 / 4
+    reynolds = density_kg_m3 * q * diameter_m / (area * viscosity_pa_s)
+    if reynolds <= 2300:
+        resistance_per_mu = 128 * length_m / (math.pi * diameter_m**4)
+        return (
+            2 * resistance_per_mu * viscosity_pa_s * flow_m3_s,
+            resistance_per_mu * q * q,
+        )
+    laminar = 64 / reynolds
+    dlaminar = -64 / reynolds**2
+    inside = (roughness_m / (3.7 * diameter_m)) ** 1.11 + 6.9 / reynolds
+    h = -1.8 * math.log10(inside)
+    turbulent = h**-2
+    dturbulent = -2 * h**-3 * (1.8 * 6.9 / (math.log(10) * inside * reynolds**2))
+    blend = min(1.0, (reynolds - 2300) / 1700)
+    dblend = 1 / 1700 if reynolds < 4000 else 0.0
+    friction = (1 - blend) * laminar + blend * turbulent
+    dfriction = (
+        (1 - blend) * dlaminar + blend * dturbulent + dblend * (turbulent - laminar)
+    )
+    factor = (length_m / diameter_m) * density_kg_m3 / (2 * area * area)
+    dq = math.copysign(
+        factor * q * q * (3 * friction + reynolds * dfriction), flow_m3_s
+    )
+    dmu = -factor * q**3 * dfriction * reynolds / viscosity_pa_s
+    return dq, dmu
+
+
 def pipe_inertance(density_kg_m3, length_m, diameter_m):
     if density_kg_m3 <= 0 or length_m <= 0 or diameter_m <= 0:
         raise ValueError("density, length and diameter must be positive")
@@ -136,6 +205,7 @@ def gas_pipe_mass_flow(
     length_m,
     diameter_m,
     roughness_m=1e-6,
+    pressure_difference_pa=None,
 ):
     """Quasi-steady gas mass flow from A to B using mean-density Darcy loss.
 
@@ -159,7 +229,13 @@ def gas_pipe_mass_flow(
         or roughness_m < 0
     ):
         raise ValueError("invalid gas pipe conditions")
-    delta_p = pressure_a_pa - pressure_b_pa
+    delta_p = (
+        pressure_a_pa - pressure_b_pa
+        if pressure_difference_pa is None
+        else float(pressure_difference_pa)
+    )
+    if not math.isfinite(delta_p):
+        raise ValueError("invalid gas pressure difference")
     if delta_p == 0:
         return 0.0
     density = (pressure_a_pa + pressure_b_pa) / (

@@ -13,7 +13,7 @@ blowoff_max_travel_m: 0.05
 initial_gas_gauge_pressure_bar:
   low: 15
   main: 35
-  blowoff: 80
+  blowoff: 70
 # The four actuator temperatures can be varied independently between runs.
 # Chamber temperatures are uniform initial values; wall and piston starting
 # temperatures are provisional guesses. The hot ambient remains 120 C above.

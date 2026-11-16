@@ -17,6 +17,23 @@ python -m gas_spring.cli --physical config/physical.yaml --run config/run.yaml -
 python -m pytest -q
 ```
 
+For timing tests, `config/run_5s.yaml` uses `examples/inputs_5s.parquet`: the
+unchanged first 5 seconds of the full input, including the 4-second ramp and
+first second of cycling (1001 samples). Its output is `examples/output_5s.parquet`.
+
+```powershell
+python -m gas_spring.cli --physical config/physical.yaml --run config/run_5s.yaml --simulate --diagnostics
+python examples/benchmark.py --label timing
+```
+
+The benchmark saves wall/CPU times, solver counters, parameters and source hash
+under `examples/benchmarks/`. Add `--profile` for a Python call profile.
+Temporary parameter experiments use, for example,
+`--label friction_test --set run.solver.friction_velocity_scale_m_s=0.02`;
+they do not edit the YAML files. See
+[the timing investigation](examples/benchmarks/investigation.md) for measured
+speed improvements, accuracy checks and parameter sensitivity results.
+
 ## Dashboard
 
 Install the optional dashboard dependencies and start the local viewer from the
@@ -76,8 +93,21 @@ transported temperature, preserving the volume constraint. These small
 numerical transition scales avoid ambiguous derivatives at zero flow.
 
 The CLI reports progress at 0.5-second simulated-time checkpoints, with a
-wall-time heartbeat during longer solves. Add `--diagnostics` to see Radau
+wall-time heartbeat during longer solves. Add `--diagnostics` to see BDF
 integration steps, function/Jacobian evaluations, factorizations and stop events.
+Total RHS calls include the evaluations needed to construct numerical Jacobians;
+SciPy's `nfev` counter excludes those. BDF replaces Radau after a five-second
+comparison and tolerance check. Thermal expansion-source accelerations are
+differentiated analytically, and the gas-flow calculation retains small pressure
+differences directly rather than subtracting reconstructed absolute pressures.
+Each diagnostic integration time refers to **that simulation window only**.
+Progress also shows total elapsed wall time, and completion reports the sum of
+all integration windows plus imports/loading, simulation setup and sampled
+outputs, and file writing. The final `Total elapsed wall time` includes loading
+through saving the output and is shown with or without `--diagnostics`.
+The benchmark reports `total_elapsed_wall_s` separately from
+`simulation_wall_time_s`; its historical `wall_time_s` field covers only
+`simulate()` and has an explicit scope label in new reports.
 `solver.progress_interval_s` changes the checkpoint spacing. Smooth seal
 friction uses `tanh(velocity / friction_velocity_scale_m_s)`; the default scale
 is 0.005 m/s. Contact events only report elastic contact and separation.
@@ -91,19 +121,21 @@ provides the temperature; its initial value is 120 °C. Input channels are
 linearly interpolated, with no extrapolation beyond the recorded times. Output
 is sampled at input times.
 
-Compression force is **positive**; actuator extension displacement is
-**positive** and expels fluid. Consequently, at the specified initial 35 bar
-hydraulic and 15 bar low-side gas pressures, a roughly 1.73 kN *extension*
-force is needed per actuator, represented as approximately **-1729 N**, subject
-to the assumed friction. Arbitrary initial forces can make the requested static
+Positive applied load drives **actuator extension**. Extension reduces the
+actuator high-side liquid volume, expels liquid into the accumulator and
+compresses the main accumulator gas. High-side pressure opposes extension;
+low-side gas pressure assists it. At the initial 35 bar hydraulic and 15 bar
+low-side gas pressures, the balancing applied load is approximately **+1729 N**
+per actuator, subject to the assumed friction. Arbitrary initial forces can make the requested static
 initial state infeasible; the initializer reports that instead of changing the
 specified gas pressures or silently starting out of balance. Running
 `python examples/make_input.py` generates the current 19-second two-actuator
 profile at 5 ms intervals. It starts at the zero-position balancing load
-calculated from the configured low-side and main pressures (about -1729.45 N
+calculated from the configured low-side and main pressures (about +1729.45 N
 per actuator with the supplied settings), ramps linearly to +5000 N over
 4 seconds, then applies a ±3000 N sinusoid about +5000 N. Its frequency sweeps
 linearly from 1 to 4 Hz during the following 15 seconds.
+The generator also writes the first-five-second input used by the timing config.
 `config/physical.yaml` currently treats the roughly
 30 kg wheel assembly as shared equally between the two actuator inputs (15 kg
 each) under symmetric motion. This is an effective-mass split; the model does
@@ -123,7 +155,7 @@ energy and external power. `truth_sampled_energy_balance_residual_j` compares
 stored-energy change with external power integrated by the trapezoid rule at
 the **output sample times**. Sparse output can therefore make the residual
 appear large even when the integration itself balances energy well. The audit
-uses applied force power at the piston; elastic energy in the massless input
+uses applied load power F*velocity at the piston; elastic energy in the massless input
 shafts is reported separately as `truth_input_shaft_strain_energy_j`.
 
 ## Model and limitations

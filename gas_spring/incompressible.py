@@ -134,6 +134,7 @@ def constrained_accelerations(
 ):
     """Solve piston accelerations and pressure under liquid continuity.
 
+    Positive applied actuator load drives extension, expelling high-side liquid.
     Liquid is incompressible apart from the supplied thermal volume sources.
     The pipe's inertance and its nonlinear pressure loss are retained. Gas
     pressures are absolute; the returned chamber pressures are also absolute.
@@ -299,11 +300,11 @@ def constrained_accelerations(
             "actuator_a": (gas["actuator_a"] - ATMOSPHERIC_PRESSURE_PA)
             * actuator_gas_area
             - (pressures["actuator_a"] - ATMOSPHERIC_PRESSURE_PA) * actuator_area
-            - inputs["actuator_a"],
+            + inputs["actuator_a"],
             "actuator_b": (gas["actuator_b"] - ATMOSPHERIC_PRESSURE_PA)
             * actuator_gas_area
             - (pressures["actuator_b"] - ATMOSPHERIC_PRESSURE_PA) * actuator_area
-            - inputs["actuator_b"],
+            + inputs["actuator_b"],
             "main_accumulator": (
                 gas["main_accumulator"] - pressures["main_accumulator"]
             )
@@ -420,10 +421,10 @@ def constrained_accelerations(
         [
             (gas["actuator_a"] - ambient) * actuator_gas_area
             + ambient * actuator_area
-            - inputs["actuator_a"],
+            + inputs["actuator_a"],
             (gas["actuator_b"] - ambient) * actuator_gas_area
             + ambient * actuator_area
-            - inputs["actuator_b"],
+            + inputs["actuator_b"],
             gas["main_accumulator"] * main_area,
             -ambient * blowoff_area - (gas["blowoff"] - ambient) * blowoff_gas_area,
         ]

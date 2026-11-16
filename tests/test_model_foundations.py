@@ -94,7 +94,7 @@ def test_chamber_volumes_and_differential_shaft_areas(config):
 
 def test_static_initialization_accepts_balance_and_rejects_conflict(config):
     physical, run = config
-    state = initial_static_equilibrium(physical, run, -1729, -1729)
+    state = initial_static_equilibrium(physical, run, 1729, 1729)
     assert state.hydraulic_gauge_pressure_pa == pytest.approx(35e5)
     for name in ("actuator_a", "actuator_b", "main_accumulator"):
         assert abs(state.residual_forces_n[name]) <= state.friction_limits_n[name]
@@ -176,7 +176,7 @@ def test_wall_wetting_and_heat_exchange_conserve_energy():
 
 def test_initial_state_contains_balanced_masses_and_pipe_gradients(config):
     physical, run = config
-    state = initialize_system(physical, run, -1729, -1729, pipe_cells=4)
+    state = initialize_system(physical, run, 1729, 1729, pipe_cells=4)
     assert state["liquid_pressure_pa"] == pytest.approx(ATMOSPHERIC_PRESSURE_PA + 35e5)
     a = state["gas_chambers"]["actuator_a_gas"]
     assert nitrogen_pressure(
@@ -271,7 +271,7 @@ def test_forcing_interpolation_and_shaft_deflection():
         "hot_ambient_c": 110,
         "duct_air_speed_m_s": 2,
     }
-    assert shaft_position_m(0.01, 2000, 20e6) == pytest.approx(0.0099)
+    assert shaft_position_m(0.01, 2000, 20e6) == pytest.approx(0.0101)
     with pytest.raises(ValueError, match="outside"):
         interpolate_inputs(data, 3)
 
@@ -279,7 +279,7 @@ def test_forcing_interpolation_and_shaft_deflection():
 def instantaneous(config):
     physical, run = config
     initial = initialize_system(
-        physical, run, -1729, -1729, pipe_cells=2, actuator_wall_cells=3
+        physical, run, 1729, 1729, pipe_cells=2, actuator_wall_cells=3
     )
     liquid, gas = circuit_nodes_from_initial_state(initial)
     state = dict(
@@ -291,8 +291,8 @@ def instantaneous(config):
     )
     system = IncompressibleSystem(physical, run, 2, liquid)
     u = dict(
-        actuator_a_force_n=-1729.0,
-        actuator_b_force_n=-1729.0,
+        actuator_a_force_n=1729.0,
+        actuator_b_force_n=1729.0,
         hot_ambient_c=120.0,
         duct_air_speed_m_s=2.0,
     )
@@ -322,7 +322,7 @@ def test_complete_circuit_rate_assembly_conserves_internal_mass_and_volume(confi
 
 def test_reservoir_pressure_difference_reverses_gas_pipe_flow(config):
     physical, run = config
-    state = initialize_system(physical, run, -1729, -1729, pipe_cells=2)
+    state = initialize_system(physical, run, 1729, 1729, pipe_cells=2)
     _, gas = circuit_nodes_from_initial_state(state)
     reservoir = gas["low_pressure_reservoir_gas"]
     for field in ("mass_kg", "internal_energy_j", "boundary_energy_j"):
@@ -342,7 +342,7 @@ def test_coupled_rates_preserve_static_equilibrium(config):
     system, state, u = instantaneous((physical, run))
     area_gas = piston_area(physical["geometry"]["actuator_piston_diameter_m"])
     area_fluid = -system.j["actuator_a"]
-    force = 15e5 * area_gas - 35e5 * area_fluid
+    force = 35e5 * area_fluid - 15e5 * area_gas
     u["actuator_a_force_n"] = u["actuator_b_force_n"] = force
     rate = system.evaluate(state, u, "main_accumulator")
     assert all(abs(a) < 1e-8 for a in rate["velocity_rate_m_s2"].values())
@@ -377,8 +377,8 @@ def test_short_coupled_run_generates_truth_and_sensor_channels(config):
     inputs = pd.DataFrame(
         {
             "time_s": [0.0, 0.001],
-            "actuator_a_force_n": [-1729.0, -1729.0],
-            "actuator_b_force_n": [-1729.0, -1729.0],
+            "actuator_a_force_n": [1729.0, 1729.0],
+            "actuator_b_force_n": [1729.0, 1729.0],
             "hot_ambient_c": [120.0, 120.0],
             "duct_air_speed_m_s": [2.0, 2.0],
         }
@@ -406,8 +406,8 @@ def test_cli_writes_parquet_atomically_and_protects_input(
     inputs = pd.DataFrame(
         {
             "time_s": [0.0, 0.001],
-            "actuator_a_force_n": [-1729.0, -1729.0],
-            "actuator_b_force_n": [-1729.0, -1729.0],
+            "actuator_a_force_n": [1729.0, 1729.0],
+            "actuator_b_force_n": [1729.0, 1729.0],
             "duct_air_speed_m_s": [2.0, 2.0],
         }
     )
@@ -460,8 +460,8 @@ def test_incompressible_run_preserves_volume_and_reports_progress(config):
     inputs = pd.DataFrame(
         dict(
             time_s=[0.0, 0.01, 0.02],
-            actuator_a_force_n=[-1729.0, -1800.0, -1900.0],
-            actuator_b_force_n=[-1729.0, -1700.0, -1600.0],
+            actuator_a_force_n=[1729.0, 1800.0, 1900.0],
+            actuator_b_force_n=[1729.0, 1700.0, 1600.0],
             hot_ambient_c=120.0,
             duct_air_speed_m_s=2.0,
         )
@@ -482,6 +482,17 @@ def test_incompressible_run_preserves_volume_and_reports_progress(config):
     )
     assert progress[-1][0] == 0.02
     assert sum(d["accepted_steps"] for d in diagnostics) > 0
+    assert diagnostics[-1]["cumulative_solve_wall_s"] == pytest.approx(
+        sum(d["solve_wall_s"] for d in diagnostics)
+    )
+    assert all(
+        d["simulation_elapsed_wall_s"] >= d["cumulative_solve_wall_s"]
+        for d in diagnostics
+    )
+    assert all(
+        b["simulation_elapsed_wall_s"] >= a["simulation_elapsed_wall_s"]
+        for a, b in zip(diagnostics, diagnostics[1:])
+    )
 
 
 def test_cli_solver_failure_does_not_replace_output(
@@ -494,8 +505,8 @@ def test_cli_solver_failure_does_not_replace_output(
     pd.DataFrame(
         {
             "time_s": [0.0, 0.001],
-            "actuator_a_force_n": [-1729.0, -1729.0],
-            "actuator_b_force_n": [-1729.0, -1729.0],
+            "actuator_a_force_n": [1729.0, 1729.0],
+            "actuator_b_force_n": [1729.0, 1729.0],
             "duct_air_speed_m_s": [2.0, 2.0],
         }
     ).to_parquet(tmp_path / "input.parquet", index=False)
@@ -537,8 +548,8 @@ def test_real_cli_simulation_writes_sensor_and_truth_parquet(
     pd.DataFrame(
         {
             "time_s": [0.0, 0.001],
-            "actuator_a_force_n": [-1729.0, -1729.0],
-            "actuator_b_force_n": [-1729.0, -1729.0],
+            "actuator_a_force_n": [1729.0, 1729.0],
+            "actuator_b_force_n": [1729.0, 1729.0],
             "duct_air_speed_m_s": [2.0, 2.0],
         }
     ).to_parquet(tmp_path / "input.parquet", index=False)
@@ -577,8 +588,8 @@ def test_coupled_blowoff_opens_and_reaches_stop(config):
     inputs = pd.DataFrame(
         {
             "time_s": [0.0, 0.001, 0.002, 0.03],
-            "actuator_a_force_n": [-1729.0, -5000.0, -8000.0, -8000.0],
-            "actuator_b_force_n": [-1729.0] * 4,
+            "actuator_a_force_n": [1729.0, 5000.0, 8000.0, 8000.0],
+            "actuator_b_force_n": [1729.0] * 4,
             "hot_ambient_c": [120.0] * 4,
             "duct_air_speed_m_s": [2.0] * 4,
         }
@@ -615,8 +626,8 @@ def test_short_forced_run_is_consistent_with_tighter_steps(config):
     inputs = pd.DataFrame(
         {
             "time_s": [0.0, 0.001, 0.002],
-            "actuator_a_force_n": [-1729.0, -2000.0, -2200.0],
-            "actuator_b_force_n": [-1729.0] * 3,
+            "actuator_a_force_n": [1729.0, 2000.0, 2200.0],
+            "actuator_b_force_n": [1729.0] * 3,
             "hot_ambient_c": [120.0] * 3,
             "duct_air_speed_m_s": [2.0] * 3,
         }
@@ -641,8 +652,8 @@ def test_coupled_three_minute_warmup_is_finite_and_heats_actuator(config):
     inputs = pd.DataFrame(
         {
             "time_s": times,
-            "actuator_a_force_n": -1729 + times * 0,
-            "actuator_b_force_n": -1729 + times * 0,
+            "actuator_a_force_n": 1729 + times * 0,
+            "actuator_b_force_n": 1729 + times * 0,
             "hot_ambient_c": 120 + times * 0,
             "duct_air_speed_m_s": 2 + times * 0,
         }
@@ -675,8 +686,8 @@ def test_main_accumulator_stop_releases_and_preserves_incompressible_motion(conf
     inputs = pd.DataFrame(
         dict(
             time_s=[0.0, 0.01, 0.03, 0.04, 0.07],
-            actuator_a_force_n=[-1729.0, 1000.0, 1000.0, -4000.0, -4000.0],
-            actuator_b_force_n=[-1729.0, 1000.0, 1000.0, -4000.0, -4000.0],
+            actuator_a_force_n=[1729.0, -1000.0, -1000.0, 4000.0, 4000.0],
+            actuator_b_force_n=[1729.0, -1000.0, -1000.0, 4000.0, 4000.0],
             hot_ambient_c=120.0,
             duct_air_speed_m_s=2.0,
         )
@@ -714,3 +725,104 @@ def test_main_accumulator_stop_releases_and_preserves_incompressible_motion(conf
         + piston_area(0.045, 0.012) * output.truth_blowoff_piston_position_m / area_main
     )
     np.testing.assert_allclose(main, expected, atol=1e-12)
+
+
+def test_positive_load_extends_actuators_and_compresses_main_accumulator(config):
+    from examples.make_input import zero_position_static_load_n
+
+    physical, run = copy.deepcopy(config)
+    run["solver"].update(pipe_cells=1, actuator_wall_cells=2, max_step_s=0.005)
+    balance = zero_position_static_load_n(physical, run)
+    assert balance == pytest.approx(1729.446755958)
+    times = np.linspace(0.0, 0.1, 11)
+    forces = balance + (3000.0 - balance) * times / 0.1
+    inputs = pd.DataFrame(
+        dict(
+            time_s=times,
+            actuator_a_force_n=forces,
+            actuator_b_force_n=forces,
+            hot_ambient_c=120.0,
+            duct_air_speed_m_s=2.0,
+        )
+    )
+    output = simulate(physical, run, inputs)
+    for name in ("actuator_a", "actuator_b"):
+        assert output[f"truth_{name}_piston_position_m"].iloc[-1] > 0
+        assert output[f"truth_{name}_fluid_pressure_bar"].iloc[-1] > 35.0
+        channel = f"truth_mass_flow_hydraulic_inlet_junction_to_{name}_fluid_kg_s"
+        assert output[channel].iloc[-1] < 0
+    assert output.truth_main_accumulator_piston_position_m.iloc[-1] < 0
+    assert (
+        output.truth_main_gas_volume_m3.iloc[-1]
+        < output.truth_main_gas_volume_m3.iloc[0]
+    )
+    assert output.truth_main_gas_pressure_bar.iloc[-1] > 35.0
+    assert (
+        output.truth_mass_flow_hydraulic_outlet_junction_to_main_fluid_kg_s.iloc[-1] > 0
+    )
+    assert output.truth_hydraulic_pipe_flow_0_m3_s.iloc[-1] > 0
+    assert output.truth_minimum_liquid_absolute_pressure_pa.min() > 0
+
+
+def test_positive_load_power_and_internal_energy_rates_balance(config):
+    from gas_spring.coupling import PISTONS
+    from gas_spring.solver import _record
+
+    physical, run = copy.deepcopy(config)
+    physical["fluid"]["volumetric_expansion_per_k"] = 0.0
+    system, state, u = instantaneous((physical, run))
+    state["velocity"].update(actuator_a=0.003, actuator_b=0.002, blowoff=0.001)
+    rate = system.evaluate(state, u)
+    velocity = state["velocity"]
+    acceleration = rate["velocity_rate_m_s2"]
+    total = sum(
+        node["energy_rate_w"]
+        for group in ("liquid", "gas")
+        for node in rate[group]["node_rates"].values()
+    )
+    total += sum(rate["thermal"]["solid_heat_w"].values())
+    total += sum(
+        effective_piston_mass_kg(physical, n) * velocity[n] * acceleration[n]
+        for n in PISTONS
+    )
+    length = system.g["hydraulic_pipe_length_m"] / system.cells
+    rho = physical["fluid"]["density_kg_m3_at_20c"]
+    area_fluid = -system.j["actuator_a"]
+    for i, q in enumerate(rate["flows"]["pipe"]):
+        inertia = pipe_inertance(
+            rho,
+            length * (0.5 if i in (0, system.cells) else 1),
+            system.g["hydraulic_pipe_diameter_m"],
+        )
+        total += (
+            inertia
+            * q
+            * area_fluid
+            * (acceleration["actuator_a"] + acceleration["actuator_b"])
+        )
+    inertia = pipe_inertance(
+        rho,
+        system.g["blowoff_connection_length_m"],
+        system.g["blowoff_connection_diameter_m"],
+    )
+    total += (
+        inertia
+        * rate["flows"]["blowoff"]
+        * system.j["blowoff"]
+        * acceleration["blowoff"]
+    )
+    total -= sum(rate["end_stops"][n]["force_n"] * velocity[n] for n in PISTONS)
+    gas_area = piston_area(0.038)
+    blowoff_gas_area = piston_area(0.045)
+    volume_rate = (gas_area - area_fluid) * (
+        velocity["actuator_a"] + velocity["actuator_b"]
+    ) + (system.j["blowoff"] - blowoff_gas_area) * velocity["blowoff"]
+    expected = (
+        rate["thermal"]["external_heat_w"]
+        + sum(u[n + "_force_n"] * velocity[n] for n in ("actuator_a", "actuator_b"))
+        - ATMOSPHERIC_PRESSURE_PA * volume_rate
+    )
+    assert total == pytest.approx(expected, abs=1e-6)
+    assert _record(state, rate, 0.0, system, u)[
+        "truth_external_power_w"
+    ] == pytest.approx(expected)

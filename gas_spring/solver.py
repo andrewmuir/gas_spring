@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.integrate import solve_ivp
 from .circuit import circuit_nodes_from_initial_state
 from .coupling import IncompressibleSystem, PISTONS
-from .force_input import interpolate_inputs, shaft_position_m
+from .force_input import InputInterpolator, shaft_position_m
 from .initialization import initialize_system
 from .materials import ATMOSPHERIC_PRESSURE_PA, liquid_temperatures
 from .mechanics import effective_piston_mass_kg
@@ -78,7 +78,16 @@ class _Layout:
         self.indices = {field: i for i, field in enumerate(self.fields)}
 
     def unpack(self, y):
-        s = copy.deepcopy(self.template)
+        # Circuit metadata consists of scalars. Copy only the mutable containers
+        # that this evaluation changes, rather than recursively copying it all.
+        s = dict(self.template)
+        for group in ("position", "velocity", "solid"):
+            s[group] = {
+                name: value.copy() if isinstance(value, (list, np.ndarray)) else value
+                for name, value in self.template[group].items()
+            }
+        for group in ("liquid", "gas"):
+            s[group] = {name: dict(node) for name, node in self.template[group].items()}
         for value, (group, name, field) in zip(y, self.fields):
             if group in ("position", "velocity"):
                 s[group][name] = float(value)
@@ -94,7 +103,22 @@ class _Layout:
         ) / j[d]
         self.system.volumes(s)
         reference = s["gas"][self.reference_gas]
+        gas = self.system.physical["gas"]
+        pressure_per_energy = gas["specific_gas_constant_j_kg_k"] / (
+            gas["specific_heat_cp_j_kg_k"] - gas["specific_gas_constant_j_kg_k"]
+        )
+        s["gas_pressure_reference_pa"] = (
+            pressure_per_energy
+            * reference["internal_energy_j"]
+            / reference["volume_m3"]
+        )
+        s["gas_pressure_offsets_pa"] = {self.reference_gas: 0.0}
         for name in self.difference_gas:
+            s["gas_pressure_offsets_pa"][name] = (
+                pressure_per_energy
+                * s["gas"][name]["internal_energy_j"]
+                / s["gas"][name]["volume_m3"]
+            )
             s["gas"][name]["internal_energy_j"] += (
                 reference["internal_energy_j"]
                 * s["gas"][name]["volume_m3"]
@@ -266,7 +290,7 @@ def _record(s, rate, t, system, u):
     ) + (system.j["blowoff"] - bg) * s["velocity"]["blowoff"]
     result["truth_external_power_w"] = (
         rate["thermal"]["external_heat_w"]
-        - sum(
+        + sum(
             u[n + "_force_n"] * s["velocity"][n] for n in ("actuator_a", "actuator_b")
         )
         - ATMOSPHERIC_PRESSURE_PA * volume_rate
@@ -297,6 +321,8 @@ def simulate(
     diagnostics_callback=None,
 ):
     """Integrate incompressible flow, gas, smooth seal friction and thermal states."""
+    simulation_started = time.perf_counter()
+    cumulative_solve_wall_s = 0.0
     opts = run.get("solver", {})
     cells, wall_cells = opts.get("pipe_cells", 3), opts.get("actuator_wall_cells", 6)
     rtol, max_step = float(opts.get("relative_tolerance", 1e-5)), float(
@@ -318,7 +344,8 @@ def simulate(
     times = inputs.time_s.to_numpy(dtype=float)
     if len(times) < 2 or not np.isfinite(times).all() or np.any(np.diff(times) <= 0):
         raise ValueError("input time must increase")
-    first = interpolate_inputs(inputs, times[0])
+    interpolate = InputInterpolator(inputs)
+    first = interpolate(times[0])
     initial = initialize_system(
         physical,
         run,
@@ -368,9 +395,13 @@ def simulate(
                     solve_calls=stats["calls"],
                     accepted_steps=stats["steps"],
                     nfev=stats["nfev"],
+                    rhs_calls=stats["rhs_calls"],
+                    jacobian_rhs_calls=stats["jacobian_rhs_calls"],
                     njev=stats["njev"],
                     nlu=stats["nlu"],
                     solve_wall_s=stats["wall"],
+                    cumulative_solve_wall_s=cumulative_solve_wall_s,
+                    simulation_elapsed_wall_s=time.perf_counter() - simulation_started,
                     min_step_s=min(steps, default=0),
                     max_step_s=max(steps, default=0),
                     event_counts=dict(event_counts),
@@ -385,32 +416,19 @@ def simulate(
 
     def rhs(t, y):
         nonlocal last_heartbeat
+        stats["rhs_calls"] += 1
         state = layout.unpack(y)
-        rate = system.evaluate(state, interpolate_inputs(inputs, t), dep)
+        rate = system.evaluate(state, interpolate(t), dep)
         if time.perf_counter() - last_heartbeat > 2:
             notify(now)
             last_heartbeat = time.perf_counter()
         return layout.derivative(rate, state)
 
-    jacobian_cache = {}
-
     def jacobian(t, y):
         # Near a loaded stop, velocities can be almost zero. SciPy's default
         # perturbation is then too small to resolve the pressure/friction
         # solve accurately. Use physical perturbation scales for this model.
-        state = layout.unpack(y)
-        contacts = tuple(
-            (response["lower_deflection_m"] > 0, response["upper_deflection_m"] > 0)
-            for response in system.stop_responses(state["position"]).values()
-        )
-        if (
-            jacobian_cache
-            and abs(t - jacobian_cache["time"]) < 0.05
-            and contacts == jacobian_cache["contacts"]
-            and jacobian_cache["uses"] < 8
-        ):
-            jacobian_cache["uses"] += 1
-            return jacobian_cache["matrix"]
+        before = stats["rhs_calls"]
         base = rhs(t, y)
         jac = np.empty((len(y), len(y)))
         for i, (group, name, field) in enumerate(layout.fields):
@@ -430,7 +448,7 @@ def simulate(
             shifted = y.copy()
             shifted[i] += step
             jac[:, i] = (rhs(t, shifted) - base) / step
-        jacobian_cache.update(time=t, contacts=contacts, uses=0, matrix=jac)
+        stats["jacobian_rhs_calls"] += stats["rhs_calls"] - before
         return jac
 
     # Contacts are continuous spring forces. These roots only report contact
@@ -461,7 +479,7 @@ def simulate(
             rhs,
             (now, checkpoint),
             state_y,
-            method="Radau",
+            method="BDF",
             jac=jacobian,
             rtol=rtol,
             atol=layout.atol,
@@ -474,7 +492,9 @@ def simulate(
         stats["nfev"] += solution.nfev
         stats["njev"] += solution.njev
         stats["nlu"] += solution.nlu
-        stats["wall"] += time.perf_counter() - started
+        solve_wall_s = time.perf_counter() - started
+        stats["wall"] += solve_wall_s
+        cumulative_solve_wall_s += solve_wall_s
         steps.extend(np.diff(solution.t).tolist())
         if not solution.success:
             raise RuntimeError(
@@ -488,7 +508,7 @@ def simulate(
                 if stamp <= now and now > times[0]:
                     continue
                 state = layout.unpack(solution.sol(stamp))
-                rate = system.evaluate(state, interpolate_inputs(inputs, stamp), dep)
+                rate = system.evaluate(state, interpolate(stamp), dep)
                 entering = state["velocity"][name] * (1 if side == "upper" else -1) > 0
                 kind = ("contact_" if entering else "release_") + side
                 contact_events.append((float(stamp), name, kind))
@@ -502,7 +522,7 @@ def simulate(
         while sample < len(times) and times[sample] <= end + 1e-12:
             stamp = float(times[sample])
             state = layout.unpack(solution.sol(stamp))
-            u = interpolate_inputs(inputs, stamp)
+            u = interpolate(stamp)
             rate = system.evaluate(state, u, dep)
             records.append(_record(state, rate, stamp, system, u))
             sample += 1
