@@ -320,13 +320,12 @@ def test_complete_circuit_rate_assembly_conserves_internal_mass_and_volume(confi
         assert volume_rate == pytest.approx(expected, abs=1e-14)
 
 
-def test_reservoir_pressure_difference_reverses_gas_pipe_flow(config):
+def test_reservoir_heat_drives_conservative_gas_transfer(config):
     physical, run = config
     state = initialize_system(physical, run, 1729, 1729, pipe_cells=2)
     _, gas = circuit_nodes_from_initial_state(state)
     reservoir = gas["low_pressure_reservoir_gas"]
-    for field in ("mass_kg", "internal_energy_j", "boundary_energy_j"):
-        reservoir[field] *= 1.01
+    reservoir["heat_rate_w"] = 1.0
     rates = nitrogen_rates(gas, 2, physical)
     connection = [
         flow
@@ -334,6 +333,9 @@ def test_reservoir_pressure_difference_reverses_gas_pipe_flow(config):
         if b == "low_pressure_reservoir_gas"
     ]
     assert len(connection) == 1 and connection[0] < 0
+    assert sum(
+        node["energy_rate_w"] for node in rates["node_rates"].values()
+    ) == pytest.approx(1.0)
 
 
 def test_coupled_rates_preserve_static_equilibrium(config):

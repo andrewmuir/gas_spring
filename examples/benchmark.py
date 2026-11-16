@@ -21,8 +21,11 @@ import scipy
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gas_spring.config import load_inputs, load_yaml, validate_config
-from gas_spring.solver import simulate
+
+def json_native(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"Cannot encode {type(value).__name__}")
 
 
 def main():
@@ -32,9 +35,22 @@ def main():
     parser.add_argument("--label", default="timing")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument(
+        "--full-jacobian",
+        action="store_true",
+        help="validate against complete finite differences",
+    )
+    parser.add_argument(
+        "--wide-flow-transitions",
+        action="store_true",
+        help="test broader zero-flow smoothing without editing the model",
+    )
+    parser.add_argument(
+        "--reference-archive", help="frozen historical source ZIP for validation only"
+    )
+    parser.add_argument(
         "--auto-jacobian", action="store_true", help="test SciPy numerical Jacobian"
     )
-    parser.add_argument("--method", choices=("Radau", "BDF"), default="BDF")
+    parser.add_argument("--method", choices=("Radau", "BDF", "LSODA"), default="BDF")
     parser.add_argument("--absolute-tolerance-scale", type=float, default=1.0)
     parser.add_argument(
         "--set",
@@ -44,6 +60,11 @@ def main():
         help="temporary physical.KEY or run.KEY override (JSON value)",
     )
     args = parser.parse_args()
+    if args.reference_archive:
+        sys.path.insert(0, str(Path(args.reference_archive).resolve()))
+    from gas_spring.config import load_inputs, load_yaml, validate_config
+    from gas_spring.solver import simulate
+
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.label):
         parser.error("label must contain only letters, digits, underscores and hyphens")
     directory = ROOT / "examples/benchmarks"
@@ -68,6 +89,28 @@ def main():
     import gas_spring.solver as solver_module
 
     original_solve = solver_module.solve_ivp
+    if args.full_jacobian:
+        original_evaluate = solver_module.IncompressibleSystem.evaluate
+
+        def full_evaluate(*positional, **keywords):
+            keywords.pop("frozen_source_rate_function", None)
+            return original_evaluate(*positional, **keywords)
+
+        solver_module.IncompressibleSystem.evaluate = full_evaluate
+        solver_module._Layout.gas_thermal_field = staticmethod(lambda field: False)
+    if args.wide_flow_transitions:
+        if args.reference_archive:
+            parser.error("transition ablation applies only to the reduced model")
+        import gas_spring.coupling as coupling
+        import gas_spring.incompressible as incompressible
+        import gas_spring.gas_network as gas_network
+
+        coupling.VOLUME_FLOW_TRANSITION_M3_S = (
+            incompressible.VOLUME_FLOW_TRANSITION_M3_S
+        ) = 1e-8
+        coupling.MASS_FLOW_TRANSITION_KG_S = gas_network.MASS_FLOW_TRANSITION_KG_S = (
+            1e-5
+        )
 
     def configured_solve(*positional, **keywords):
         if args.auto_jacobian:
@@ -78,7 +121,11 @@ def main():
 
     solver_module.solve_ivp = configured_solve
     source_hash = hashlib.sha256(
-        b"".join(p.read_bytes() for p in sorted((ROOT / "gas_spring").glob("*.py")))
+        Path(args.reference_archive).read_bytes()
+        if args.reference_archive
+        else b"".join(
+            p.read_bytes() for p in sorted((ROOT / "gas_spring").glob("*.py"))
+        )
     ).hexdigest()
     snapshots = []
 
@@ -121,6 +168,20 @@ def main():
         samples=len(result),
         simulated_time_s=float(inputs.time_s.iloc[-1] - inputs.time_s.iloc[0]),
         solver=run["solver"],
+        run_configuration=run,
+        input_sha256=hashlib.sha256(
+            inputs[
+                [
+                    "time_s",
+                    "actuator_a_force_n",
+                    "actuator_b_force_n",
+                    "hot_ambient_c",
+                    "duct_air_speed_m_s",
+                ]
+            ]
+            .to_numpy(dtype=float)
+            .tobytes()
+        ).hexdigest(),
         physical=physical,
         solver_totals={
             k: sum(s[k] for s in snapshots)
@@ -171,6 +232,9 @@ def main():
             ),
         ),
         source_sha256=source_hash,
+        reference_archive=args.reference_archive,
+        full_jacobian=args.full_jacobian,
+        wide_flow_transitions=args.wide_flow_transitions,
         environment=dict(
             python=platform.python_version(),
             numpy=np.__version__,
@@ -190,7 +254,7 @@ def main():
     report["total_elapsed_wall_s"] = time.perf_counter() - COMMAND_STARTED
     report["total_process_cpu_time_s"] = time.process_time() - COMMAND_CPU_STARTED
     (directory / f"{args.label}.json").write_text(
-        json.dumps(report, indent=2), encoding="utf-8"
+        json.dumps(report, indent=2, default=json_native), encoding="utf-8"
     )
     print(
         json.dumps(

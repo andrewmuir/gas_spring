@@ -1,0 +1,9 @@
+{
+  "max_difference_piston_position_m": 9.26867891957138e-07,
+  "max_difference_pressure_bar": 0.022191426447307094,
+  "max_difference_temperature_c": 0.058391428422964964,
+  "max_hydraulic_pressure_difference_bar": 0.022191426447307094,
+  "max_estimated_omitted_pressure_drop_fraction": 0.0009441244353843111,
+  "max_estimated_gas_mach": 0.014430897147423714,
+  "max_estimated_inertial_gas_pressure_fraction": 0.0038646063339829255
+}

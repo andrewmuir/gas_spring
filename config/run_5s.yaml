@@ -11,7 +11,7 @@ blowoff_max_travel_m: 0.05
 initial_gas_gauge_pressure_bar:
   low: 15
   main: 35
-  blowoff: 80
+  blowoff: 70
 initial_temperatures_c:
   actuator_a_fluid: 50
   actuator_b_fluid: 50

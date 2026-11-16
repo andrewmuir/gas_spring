@@ -27,11 +27,8 @@ class _Layout:
         )
         self.fields, values, tolerances = [], [], []
         self.reference_gas = "low_pressure_reservoir_gas"
-        self.difference_gas = set(state["gas"]) - {
-            self.reference_gas,
-            "main_gas",
-            "blowoff_gas",
-        }
+        self.network_gas = system.gas_network.names
+        self.network_mass = sum(state["gas"][n]["mass_kg"] for n in self.network_gas)
 
         def add(group, name, field, value, tolerance):
             self.fields.append((group, name, field))
@@ -51,22 +48,22 @@ class _Layout:
                 ):
                     if field in node:
                         value = node[field]
-                        if (
-                            group == "gas"
-                            and field == "internal_energy_j"
-                            and name in self.difference_gas
-                        ):
-                            reference = state["gas"][self.reference_gas]
-                            value -= (
-                                reference["internal_energy_j"]
-                                * node["volume_m3"]
-                                / reference["volume_m3"]
-                            )
-                            # Keep an energy tolerance comparable to the
-                            # physical gas-energy states. A nanajoule limit
-                            # would unnecessarily resolve sub-millipascal
-                            # pressure transients in the connecting pipes.
-                            tol = 1e-6
+                        if group == "gas":
+                            if field == "mass_kg" and name in (
+                                *system.gas_network.closed,
+                                self.reference_gas,
+                            ):
+                                continue
+                            if (
+                                field == "internal_energy_j"
+                                and name in self.network_gas
+                            ):
+                                if name != self.reference_gas:
+                                    continue
+                                value = sum(
+                                    state["gas"][n]["internal_energy_j"]
+                                    for n in self.network_gas
+                                )
                         add(group, name, field, value, tol)
         for name, value in state["solid"].items():
             if isinstance(value, (list, tuple, np.ndarray)):
@@ -103,27 +100,11 @@ class _Layout:
         ) / j[d]
         self.system.volumes(s)
         reference = s["gas"][self.reference_gas]
-        gas = self.system.physical["gas"]
-        pressure_per_energy = gas["specific_gas_constant_j_kg_k"] / (
-            gas["specific_heat_cp_j_kg_k"] - gas["specific_gas_constant_j_kg_k"]
+        reference["mass_kg"] = self.network_mass - sum(
+            s["gas"][n]["mass_kg"] for n in self.network_gas if n != self.reference_gas
         )
-        s["gas_pressure_reference_pa"] = (
-            pressure_per_energy
-            * reference["internal_energy_j"]
-            / reference["volume_m3"]
-        )
-        s["gas_pressure_offsets_pa"] = {self.reference_gas: 0.0}
-        for name in self.difference_gas:
-            s["gas_pressure_offsets_pa"][name] = (
-                pressure_per_energy
-                * s["gas"][name]["internal_energy_j"]
-                / s["gas"][name]["volume_m3"]
-            )
-            s["gas"][name]["internal_energy_j"] += (
-                reference["internal_energy_j"]
-                * s["gas"][name]["volume_m3"]
-                / reference["volume_m3"]
-            )
+        s["gas_network_internal_energy_j"] = reference["internal_energy_j"]
+        self.system.gas_network.project(s["gas"], s["gas_network_internal_energy_j"])
         return s
 
     def derivative(self, rate, state):
@@ -146,19 +127,21 @@ class _Layout:
                 if (
                     group == "gas"
                     and field == "internal_energy_j"
-                    and name in self.difference_gas
+                    and name == self.reference_gas
                 ):
-                    reference = state["gas"][self.reference_gas]
-                    node = state["gas"][name]
-                    out[i] -= (
-                        rate["gas"]["node_rates"][self.reference_gas]["energy_rate_w"]
-                        * node["volume_m3"]
-                        / reference["volume_m3"]
-                        + reference["internal_energy_j"]
-                        * node.get("volume_rate_m3_s", 0.0)
-                        / reference["volume_m3"]
-                    )
+                    out[i] = rate["gas"]["network_energy_rate_w"]
         return out
+
+    @staticmethod
+    def gas_thermal_field(field):
+        group, name, component = field
+        return (group == "gas" and component != "internal_energy_j") or (
+            group == "solid"
+            and (
+                name.endswith("_piston_gas")
+                or name in ("gas_pipe_wall", "reservoir_wall", "cooler_region")
+            )
+        )
 
 
 def _record(s, rate, t, system, u):
@@ -169,6 +152,14 @@ def _record(s, rate, t, system, u):
         "duct_air_speed_m_s": u["duct_air_speed_m_s"],
         "cooler_region_temperature_c": s["solid"]["cooler_region"],
     }
+    gas_loss = system.gas_network.loss_estimate(rate["gas"])
+    result["truth_gas_network_estimated_max_pressure_drop_pa"] = gas_loss[
+        "max_pressure_drop_pa"
+    ]
+    result["truth_gas_network_estimated_pressure_drop_fraction"] = gas_loss[
+        "pressure_drop_fraction"
+    ]
+    result["truth_gas_network_estimated_max_mach_number"] = gas_loss["max_mach_number"]
     for group in ("liquid", "gas"):
         for name, node in s[group].items():
             if group == "liquid":
@@ -218,6 +209,20 @@ def _record(s, rate, t, system, u):
         result[f"truth_{name}_displacement_mm"] = 1000 * shaft_position_m(
             s["position"][name], force, system.g["actuator_input_shaft_stiffness_n_m"]
         )
+    # Report the loss at each restriction separately from pipe/piston inertia.
+    for name, chamber, junction in (
+        ("actuator_a", "actuator_a_fluid", "hydraulic_inlet_junction"),
+        ("actuator_b", "actuator_b_fluid", "hydraulic_inlet_junction"),
+        ("main_accumulator", "main_fluid", "hydraulic_outlet_junction"),
+    ):
+        pressure = rate["mechanics"]["node_pressures_pa"]
+        result[f"truth_{name}_restriction_pressure_drop_bar"] = (
+            pressure[junction] - pressure[chamber]
+        ) / 1e5
+        result[f"truth_{name}_restriction_flow_m3_s"] = rate["flows"][name]
+        result[f"truth_{name}_restriction_dissipation_w"] = rate["mechanics"][
+            "branch_dissipation_w"
+        ][name]
     result["truth_blowoff_displacement_mm"] = 1000 * s["position"]["blowoff"]
     for i, q in enumerate(rate["flows"]["pipe"]):
         result[f"truth_hydraulic_pipe_flow_{i}_m3_s"] = q
@@ -429,25 +434,45 @@ def simulate(
         # perturbation is then too small to resolve the pressure/friction
         # solve accurately. Use physical perturbation scales for this model.
         before = stats["rhs_calls"]
-        base = rhs(t, y)
+        state = layout.unpack(y)
+        u = interpolate(t)
+        rate = system.evaluate(state, u, dep)
+        stats["rhs_calls"] += 1
+        base = layout.derivative(rate, state)
+        source_rate_function = rate["source_rate_function"]
         jac = np.empty((len(y), len(y)))
         for i, (group, name, field) in enumerate(layout.fields):
             if group == "position":
-                step = max(abs(y[i]) * 1e-7, 1e-8)
+                step = max(abs(y[i]) * 1e-7, 1e-9)
             elif group == "velocity":
-                step = max(abs(y[i]) * 1e-7, 1e-7)
+                step = max(abs(y[i]) * 1e-7, 1e-9)
             elif group == "gas":
                 if field == "internal_energy_j":
-                    # Resolve small gas pressure differences without jumping
-                    # across the regularized zero-flow transport interval.
-                    step = max(abs(y[i]) * 1e-11, 1e-10)
+                    # Only bulk gas energies remain; no tiny pressure offsets.
+                    step = max(abs(y[i]) * 1e-7, 1e-6)
                 else:
                     step = max(abs(y[i]) * 1e-8, 1e-14 if field == "mass_kg" else 1e-7)
             else:
                 step = max(abs(y[i]) * 1e-6, 1e-8 if field == "mass_kg" else 1e-3)
             shifted = y.copy()
             shifted[i] += step
-            jac[:, i] = (rhs(t, shifted) - base) / step
+            shifted_state = layout.unpack(shifted)
+            # The full RHS always solves the differentiated thermal constraint.
+            # Freeze its weak, beta-scaled coefficient variation only while
+            # constructing a Newton matrix; retain its acceleration coupling.
+            if layout.gas_thermal_field((group, name, field)):
+                shifted_rate = system.gas_thermal_jacobian_rate(
+                    shifted_state, u, rate, dep
+                )
+            else:
+                shifted_rate = system.evaluate(
+                    shifted_state,
+                    u,
+                    dep,
+                    frozen_source_rate_function=source_rate_function,
+                )
+            stats["rhs_calls"] += 1
+            jac[:, i] = (layout.derivative(shifted_rate, shifted_state) - base) / step
         stats["jacobian_rhs_calls"] += stats["rhs_calls"] - before
         return jac
 

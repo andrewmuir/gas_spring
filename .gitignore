@@ -7,7 +7,13 @@ examples/*.parquet
 !examples/inputs_5s.parquet
 examples/*_5s.log
 examples/baseline_profile.log
+examples/gas_*.log
+examples/tests_gas*.log
+examples/restriction_calibration*.log
+examples/benchmarks/restriction_calibration/*.log
 examples/benchmarks/*.parquet
 examples/benchmarks/*.prof
 examples/benchmarks/*_profile.txt
+examples/benchmarks/gas_validation/*.parquet
+examples/benchmarks/gas_validation/*.log
 .venv/

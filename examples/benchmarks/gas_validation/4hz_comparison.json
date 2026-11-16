@@ -1,0 +1,11 @@
+{
+  "max_difference_piston_position_m": 7.262705068560027e-07,
+  "max_difference_pressure_bar": 0.018437771101730505,
+  "max_difference_temperature_c": 0.034719464276861345,
+  "max_hydraulic_pressure_difference_bar": 0.018437771101730505,
+  "max_estimated_omitted_pressure_drop_fraction": 0.0005882143561319705,
+  "max_estimated_gas_mach": 0.011149037887127386,
+  "max_estimated_inertial_gas_pressure_fraction": 0.0012536772040102058,
+  "actuator_a_fundamental_gain_change_fraction": 0.00016285784756431276,
+  "actuator_a_fundamental_phase_change_deg": 0.009751364807996652
+}

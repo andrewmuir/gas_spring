@@ -1,0 +1,12 @@
+[
+  {
+    "label": "gas_radau",
+    "returncode": 0,
+    "external_elapsed_s": 15.981931499991333
+  },
+  {
+    "label": "gas_lsoda",
+    "returncode": 1,
+    "external_elapsed_s": 53.92013700000825
+  }
+]

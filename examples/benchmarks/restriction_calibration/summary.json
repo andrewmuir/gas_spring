@@ -1,0 +1,63 @@
+{
+  "pressure_sensor_profile": {
+    "noise_std": 0.2,
+    "drift_std_per_sqrt_hour": 0.005
+  },
+  "terminal_peaks": {
+    "actuator": {
+      "compression": {
+        "peak_bar": 1.0092475040558568,
+        "time_s": 18.805,
+        "branch": "actuator_a",
+        "piston_velocity_m_s": -0.19592431878677655,
+        "volume_flow_m3_s": 0.00019202790194261873
+      },
+      "extension": {
+        "peak_bar": 1.0127978423255115,
+        "time_s": 18.905,
+        "branch": "actuator_a",
+        "piston_velocity_m_s": 0.13042515405589186,
+        "volume_flow_m3_s": -0.00012785119628474484
+      }
+    },
+    "accumulator_inlet": {
+      "compression": {
+        "peak_bar": 3.932877083562232,
+        "time_s": 18.905,
+        "branch": "main_accumulator",
+        "piston_velocity_m_s": -0.15154552779046157,
+        "volume_flow_m3_s": 0.00024101905839772576
+      },
+      "extension": {
+        "peak_bar": 3.9755096240637755,
+        "time_s": 18.295,
+        "branch": "main_accumulator",
+        "piston_velocity_m_s": 0.31794688719888187,
+        "volume_flow_m3_s": -0.0005056997994991229
+      }
+    }
+  },
+  "pressure_sensor_residual_std_bar": {
+    "sensor_actuator_a_fluid_pressure_bar": 0.20110132054723798,
+    "sensor_actuator_b_fluid_pressure_bar": 0.20482667418869704,
+    "sensor_low_pressure_gas_pressure_bar": 0.1971166957310923,
+    "sensor_main_gas_pressure_bar": 0.20293633790640608,
+    "sensor_blowoff_gas_pressure_bar": 0.1966896466684264
+  },
+  "solver_checks": {
+    "all_finite": true,
+    "maximum_volume_residual_m3": 3.8414267646962605e-21,
+    "liquid_mass_drift_kg": -2.7755575615628914e-17,
+    "nitrogen_mass_drift_kg": 0.0
+  },
+  "minimum_absolute_liquid_pressure_bar": 36.01325000000034,
+  "maximum_omitted_gas_pressure_drop_bar": 0.2218128809021464,
+  "pipe_losses": {
+    "maximum_resistive_pipe_drop_bar": 31.00483518074176,
+    "maximum_terminal_resistive_pipe_drop_bar": 31.00483518074176,
+    "maximum_terminal_total_pipe_difference_bar": 32.04589228154291,
+    "maximum_terminal_inertial_pipe_difference_bar": 8.969055700171568
+  },
+  "total_elapsed_wall_s": 292.10311910000746,
+  "source_sha256": "934435c25e7b0f135d9bccaa19d4997da3e9454bd15b482012893547787c3ccd"
+}

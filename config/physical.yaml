@@ -170,19 +170,24 @@ thermal:
   cooler_supply_air_temperature_c: 25
   cooler_other_heat_input_w: 0
 restrictions:
+  # Gains calibrated to terminal (18-19 s) peak losses in both flow directions:
+  # ~1 bar per actuator and ~4 bar at the main accumulator inlet. Curve shapes
+  # are retained; these are operating-point targets, not pressure-drop limits.
+  # Both sets of legacy speed/force coordinates use the actuator annular area
+  # (38 mm piston, 14 mm shaft) as their equivalent reference piston.
   # The fitted saturating curve has no inverse above its asymptote. For
   # transient calculations a tangent, linear high-flow continuation begins
-  # at 95% of the asymptote. This extrapolation is provisional; both supplied
-  # test points remain on the fitted part of each curve.
+  # at 95% of the asymptote. This extrapolation is provisional; both configured
+  # calibration points remain on the fitted part of each curve.
   high_flow_tail_fraction: 0.95
   actuator:
-    compression: {speed_m_s: [0.15, 0.8], force_n: [4000, 6000]}
-    extension: {speed_m_s: [0.15, 0.8], force_n: [5000, 7000]}
+    compression: {speed_m_s: [0.15, 0.8], force_n: [89.4132696039905, 134.11990440598575]}
+    extension: {speed_m_s: [0.15, 0.8], force_n: [104.50779780145409, 146.31091692203572]}
   accumulator_inlet:
-    compression: {speed_m_s: [0.15, 0.8], force_n: [4000, 6000]}
-    extension: {speed_m_s: [0.15, 0.8], force_n: [5000, 7000]}
+    compression: {speed_m_s: [0.15, 0.8], force_n: [323.8161072995645, 485.72416094934675]}
+    extension: {speed_m_s: [0.15, 0.8], force_n: [292.48239849267486, 409.47535788974477]}
 sensor_profiles:
-  pressure: {noise_std: 0.01, drift_std_per_sqrt_hour: 0.005} # bar
+  pressure: {noise_std: 0.2, drift_std_per_sqrt_hour: 0.005} # bar, 1-sigma white noise
   temperature: {noise_std: 0.05, drift_std_per_sqrt_hour: 0.02} # deg C
   displacement: {noise_std: 0.005, drift_std_per_sqrt_hour: 0.0} # mm
   force: {noise_std: 5.0, drift_std_per_sqrt_hour: 2.0} # N

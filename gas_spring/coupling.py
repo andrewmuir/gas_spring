@@ -1,7 +1,8 @@
 """Incompressible thermal transport and constrained piston dynamics."""
 
 import numpy as np
-from .circuit import nitrogen_rates
+from .gas_network import GasNetwork
+from .numerics import VOLUME_FLOW_TRANSITION_M3_S, MASS_FLOW_TRANSITION_KG_S
 from .hydraulics import (
     piston_area,
     DigressiveCurve,
@@ -36,6 +37,7 @@ class IncompressibleSystem:
         self, physical, run, cells, initial_liquid, initial_liquid_pressure_pa=None
     ):
         self.physical, self.run, self.cells = physical, run, cells
+        self.gas_network = GasNetwork(cells, physical)
         self.g, self.fluid = physical["geometry"], physical["fluid"]
         af, am, ab = liquid_piston_areas(self.g)
         self.j = dict(zip(PISTONS, (-af, -af, -am, ab)))
@@ -148,7 +150,7 @@ class IncompressibleSystem:
                     flow,
                     *self.curves[label],
                     self.physical["restrictions"]["high_flow_tail_fraction"],
-                    1e-11,
+                    VOLUME_FLOW_TRANSITION_M3_S,
                 )
                 power_t = 0.0
             else:
@@ -263,7 +265,10 @@ class IncompressibleSystem:
                     "actuator" if piston.startswith("actuator") else "accumulator_inlet"
                 )
                 dp = regularized_restriction_pressure_drop(
-                    q, *self.curves[label], tail, zero_flow_transition_m3_s=1e-11
+                    q,
+                    *self.curves[label],
+                    tail,
+                    zero_flow_transition_m3_s=VOLUME_FLOW_TRANSITION_M3_S,
                 )
             power = q * dp
             heat[chamber] += power / 2
@@ -295,6 +300,7 @@ class IncompressibleSystem:
 
     def thermal_state(self, s, u, dependent=None):
         pos = self.volumes(s)
+        self.gas_network.project(s["gas"], s.get("gas_network_internal_energy_j"))
         thermal = thermal_exchange(
             self.physical,
             self.run,
@@ -350,7 +356,7 @@ class IncompressibleSystem:
         }
         mass_links = []
         for a, b, q in links:
-            weight = 0.5 * (1 + np.tanh(q / 1e-11))
+            weight = 0.5 * (1 + np.tanh(q / VOLUME_FLOW_TRANSITION_M3_S))
             transported_temperature = (
                 weight * temperatures[a] + (1 - weight) * temperatures[b]
             )
@@ -378,8 +384,12 @@ class IncompressibleSystem:
                 )[2]
                 energy = self.fluid["specific_heat_j_kg_k"] * (
                     (
-                        0.5 * (1 + np.tanh(exchange / 1e-8)) * temperatures[n]
-                        + 0.5 * (1 - np.tanh(exchange / 1e-8)) * boundary_t
+                        0.5
+                        * (1 + np.tanh(exchange / MASS_FLOW_TRANSITION_KG_S))
+                        * temperatures[n]
+                        + 0.5
+                        * (1 - np.tanh(exchange / MASS_FLOW_TRANSITION_KG_S))
+                        * boundary_t
                     )
                     - 20
                 )
@@ -388,19 +398,7 @@ class IncompressibleSystem:
                     + thermal["liquid_boundary_heat_w"][n]
                     + f * losses[n]
                 )
-        # Gas chamber volume rates must use the reconstructed velocity.
-        self.volumes(s)
-        for n, q in thermal["gas_heat_w"].items():
-            s["gas"][n]["heat_rate_w"] = q
-            if n in thermal["gas_boundary_heat_w"]:
-                s["gas"][n]["boundary_heat_rate_w"] = thermal["gas_boundary_heat_w"][n]
-        gas = nitrogen_rates(
-            s["gas"],
-            self.cells,
-            self.physical,
-            pressure_reference_pa=s.get("gas_pressure_reference_pa"),
-            pressure_offsets_pa=s.get("gas_pressure_offsets_pa"),
-        )
+        gas = self.gas_rates(s, thermal)
         return {
             "sources": sources,
             "volume_links": links,
@@ -415,7 +413,55 @@ class IncompressibleSystem:
             "gas": gas,
         }
 
-    def evaluate(self, s, u, dependent="main_accumulator", derivatives=True):
+    def gas_rates(self, s, thermal):
+        # Gas chamber volume rates must use the reconstructed velocity.
+        self.volumes(s)
+        for n, q in thermal["gas_heat_w"].items():
+            s["gas"][n]["heat_rate_w"] = q
+            if n in thermal["gas_boundary_heat_w"]:
+                s["gas"][n]["boundary_heat_rate_w"] = thermal["gas_boundary_heat_w"][n]
+        return self.gas_network.evaluate(s["gas"])
+
+    def gas_thermal_jacobian_rate(self, s, u, base, dependent):
+        """Update the gas/solid block for gas-only Newton perturbations.
+
+        With thermal-volume acceleration coefficients frozen, these fields
+        leave liquid heat input, flows, pressure and mechanics unchanged.
+        """
+        s["velocity"][dependent] = base["position_rate_m_s"][dependent]
+        self.volumes(s)
+        thermal = thermal_exchange(
+            self.physical,
+            self.run,
+            s["liquid"],
+            s["gas"],
+            s["solid"],
+            s["position"],
+            u["hot_ambient_c"],
+            u["duct_air_speed_m_s"],
+        )
+        for name in PISTONS:
+            power = base["mechanics"]["friction_force_n"][name] * s["velocity"][name]
+            prefix = "main" if name == "main_accumulator" else name
+            capacity = (
+                self.physical["moving_masses_kg"][name]
+                * self.physical["thermal"]["metal_specific_heat_j_kg_k"]
+                / 2
+            )
+            for side in ("fluid", "gas"):
+                key = f"{prefix}_piston_{side}"
+                thermal["solid_heat_w"][key] += power / 2
+                thermal["solid_temperature_rate_c_s"][key] += power / (2 * capacity)
+        return {**base, "thermal": thermal, "gas": self.gas_rates(s, thermal)}
+
+    def evaluate(
+        self,
+        s,
+        u,
+        dependent="main_accumulator",
+        derivatives=True,
+        frozen_source_rate_function=None,
+    ):
         tstate = self.thermal_state(s, u, dependent)
         sources = tstate["sources"]
         gp = {n: tstate["gas"]["pressures_pa"][GAS_PISTONS[n]] for n in PISTONS}
@@ -432,7 +478,9 @@ class IncompressibleSystem:
             ),
             allow_nonpositive_pressure=True,
         )
-        mechanics = constrained_accelerations(*args, **kwargs)
+        mechanics = constrained_accelerations(
+            *args, source_rate_function=frozen_source_rate_function, **kwargs
+        )
         base_heat = dict(tstate["thermal"]["solid_heat_w"])
         base_rates = dict(tstate["thermal"]["solid_temperature_rate_c_s"])
 
@@ -457,7 +505,8 @@ class IncompressibleSystem:
             return np.array(list(powers.values()))
 
         old_power = friction_heat(mechanics)
-        if derivatives and self.beta:
+        source_rates = frozen_source_rate_function
+        if derivatives and self.beta and frozen_source_rate_function is None:
             for _ in range(8):
                 source_rates = self.source_rate_affine(s, tstate)
                 mechanics = constrained_accelerations(
@@ -479,4 +528,5 @@ class IncompressibleSystem:
             "end_stops": stops,
             "position_rate_m_s": s["velocity"],
             "velocity_rate_m_s2": mechanics["acceleration_m_s2"],
+            "source_rate_function": source_rates,
         }

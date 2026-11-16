@@ -182,21 +182,103 @@ def test_layout_evaluations_do_not_mutate_each_other_or_the_template():
         np.testing.assert_array_equal(again["solid"][name], original["solid"][name])
 
 
-def test_gas_flow_preserves_pressure_differences_below_absolute_pressure_roundoff():
+def test_connected_gas_has_one_energy_state_and_exact_total_mass():
     system, state, _, _ = state_and_rate()
-    connected = set(state["gas"]) - {"main_gas", "blowoff_gas"}
-    offsets = dict.fromkeys(connected, 0.0)
-    reference = 1601325.0
-    difference = 1e-11
-    assert reference + difference == reference
-    offsets["actuator_a_gas"] = difference
-    positive = nitrogen_rates(state["gas"], 2, system.physical, reference, offsets)
-    offsets["actuator_a_gas"] = -difference
-    negative = nitrogen_rates(state["gas"], 2, system.physical, reference, offsets)
-    forward = positive["mass_flows_kg_s"][0][2]
-    backward = negative["mass_flows_kg_s"][0][2]
-    assert forward > 0
-    assert backward == pytest.approx(-forward, rel=1e-14, abs=0.0)
+    layout = _Layout(state, system, "main_accumulator")
+    fields = [
+        f
+        for f in layout.fields
+        if f[0] == "gas"
+        and f[2] == "internal_energy_j"
+        and f[1] in system.gas_network.names
+    ]
+    assert fields == [("gas", "low_pressure_reservoir_gas", "internal_energy_j")]
+    changed = layout.y0.copy()
+    mass_index = layout.indices[("gas", "actuator_a_gas", "mass_kg")]
+    changed[mass_index] *= 1.01
+    reconstructed = layout.unpack(changed)
     assert sum(
-        r["mass_rate_kg_s"] for r in positive["node_rates"].values()
-    ) == pytest.approx(0.0, abs=1e-25)
+        reconstructed["gas"][n]["mass_kg"] for n in system.gas_network.names
+    ) == pytest.approx(layout.network_mass, abs=1e-17)
+    assert all(
+        ("gas", n, "mass_kg") not in layout.indices
+        for n in ("main_gas", "blowoff_gas", "low_pressure_reservoir_gas")
+    )
+
+
+@pytest.mark.parametrize(
+    "velocities", [(0.0, 0.0, 0.0), (0.01, -0.003, 0.002), (0.05, 0.03, 0.004)]
+)
+def test_frozen_thermal_coefficients_give_a_consistent_newton_linearization(velocities):
+    system, state, u, _ = state_and_rate()
+    state["velocity"].update(zip(("actuator_a", "actuator_b", "blowoff"), velocities))
+    layout = _Layout(state, system, "main_accumulator")
+    base = layout.unpack(layout.y0)
+    rate = system.evaluate(base, u)
+    frozen = rate["source_rate_function"]
+    recomputed = system.evaluate(
+        layout.unpack(layout.y0), u, frozen_source_rate_function=frozen
+    )
+    np.testing.assert_allclose(
+        layout.derivative(recomputed, base),
+        layout.derivative(rate, base),
+        rtol=1e-10,
+        atol=1e-10,
+    )
+    rng = np.random.default_rng(1234)
+    direction = []
+    for value, (group, name, field) in zip(layout.y0, layout.fields):
+        if group == "position":
+            scale = 0.001
+        elif group == "velocity":
+            scale = 0.02
+        elif group == "solid":
+            scale = 1.0
+        elif field == "mass_kg":
+            scale = abs(value) * 0.01
+        else:
+            scale = max(abs(value), 1.0) * 0.01
+        direction.append(scale * rng.normal())
+    direction = np.array(direction)
+    full, approximate = [], []
+    for h in (-1e-5, 1e-5):
+        shifted = layout.unpack(layout.y0 + h * direction)
+        full.append(layout.derivative(system.evaluate(shifted, u), shifted))
+        shifted = layout.unpack(layout.y0 + h * direction)
+        approximate.append(
+            layout.derivative(
+                system.evaluate(shifted, u, frozen_source_rate_function=frozen), shifted
+            )
+        )
+    true_change = (full[1] - full[0]) / 2e-5
+    estimated = (approximate[1] - approximate[0]) / 2e-5
+    # Only the weak thermal-volume coefficient variation is lagged. The
+    # physical RHS and the dominant mechanical/thermal derivatives agree.
+    np.testing.assert_allclose(estimated, true_change, rtol=0.01, atol=1e-5)
+
+
+def test_reused_gas_thermal_jacobian_block_matches_complete_frozen_evaluations():
+    system, state, u, _ = state_and_rate()
+    layout = _Layout(state, system, "main_accumulator")
+    base_state = layout.unpack(layout.y0)
+    base = system.evaluate(base_state, u)
+    checked = 0
+    for i, field in enumerate(layout.fields):
+        if not layout.gas_thermal_field(field):
+            continue
+        shifted = layout.y0.copy()
+        shifted[i] += max(abs(shifted[i]) * 0.001, 1e-7)
+        fast_state = layout.unpack(shifted)
+        fast = system.gas_thermal_jacobian_rate(fast_state, u, base, "main_accumulator")
+        full_state = layout.unpack(shifted)
+        full = system.evaluate(
+            full_state, u, frozen_source_rate_function=base["source_rate_function"]
+        )
+        np.testing.assert_allclose(
+            layout.derivative(fast, fast_state),
+            layout.derivative(full, full_state),
+            rtol=1e-11,
+            atol=1e-10,
+        )
+        checked += 1
+    assert checked >= 15

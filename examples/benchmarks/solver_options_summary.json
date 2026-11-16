@@ -1,0 +1,47 @@
+{
+  "solver_bdf": {
+    "simulation_wall_s": 19.54371599998558,
+    "simulation_cpu_s": 19.140625,
+    "max_difference_from_bdf": {
+      "piston_position_m": 0.0,
+      "pressure_bar": 0.0,
+      "temperature_c": 0.0
+    },
+    "checks": {
+      "all_finite": true,
+      "maximum_volume_residual_m3": 3.1532124950521415e-21,
+      "liquid_mass_drift_kg": 2.7755575615628914e-17,
+      "nitrogen_mass_drift_kg": 0.0
+    }
+  },
+  "solver_bdf_continuous": {
+    "simulation_wall_s": 20.479719900002237,
+    "simulation_cpu_s": 20.1875,
+    "max_difference_from_bdf": {
+      "piston_position_m": 6.923573730825694e-07,
+      "pressure_bar": 0.00844900141741789,
+      "temperature_c": 0.005063731495283719
+    },
+    "checks": {
+      "all_finite": true,
+      "maximum_volume_residual_m3": 3.22931311140702e-21,
+      "liquid_mass_drift_kg": -8.326672684688674e-17,
+      "nitrogen_mass_drift_kg": -1.3877787807814457e-17
+    }
+  },
+  "solver_bdf_looser": {
+    "simulation_wall_s": 14.521971999987727,
+    "simulation_cpu_s": 14.359375,
+    "max_difference_from_bdf": {
+      "piston_position_m": 1.9999785448709256e-06,
+      "pressure_bar": 0.11396083780549304,
+      "temperature_c": 0.018713548729238028
+    },
+    "checks": {
+      "all_finite": true,
+      "maximum_volume_residual_m3": 3.3120311726623228e-21,
+      "liquid_mass_drift_kg": 0.0,
+      "nitrogen_mass_drift_kg": -8.326672684688674e-17
+    }
+  }
+}

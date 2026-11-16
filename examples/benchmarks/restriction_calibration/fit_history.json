@@ -1,0 +1,177 @@
+[
+  {
+    "iteration": 1,
+    "gains": [
+      0.060825146452782225,
+      0.062482725629860264,
+      0.3591932215451124,
+      0.21734652402531685
+    ],
+    "peaks": {
+      "actuator": {
+        "compression": {
+          "peak_bar": 2.647111157018479,
+          "time_s": 18.795,
+          "branch": "actuator_b",
+          "piston_velocity_m_s": -0.17687349158781396,
+          "volume_flow_m3_s": 0.00017334817381921142
+        },
+        "extension": {
+          "peak_bar": 2.87905808397754,
+          "time_s": 18.945,
+          "branch": "actuator_a",
+          "piston_velocity_m_s": 0.11497212574064408,
+          "volume_flow_m3_s": -0.00011270889944536162
+        }
+      },
+      "accumulator_inlet": {
+        "compression": {
+          "peak_bar": 15.003953599532416,
+          "time_s": 18.91,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": -0.09796690110534488,
+          "volume_flow_m3_s": 0.00015577380034019825
+        },
+        "extension": {
+          "peak_bar": 14.104024825199382,
+          "time_s": 18.545,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": 0.23594011402212822,
+          "volume_flow_m3_s": -0.00037534693366138907
+        }
+      }
+    },
+    "maximum_relative_target_error": 2.750988399883104,
+    "minimum_absolute_liquid_pressure_bar": 36.01325000000034
+  },
+  {
+    "iteration": 2,
+    "gains": [
+      0.015206286613195556,
+      0.015620681407465066,
+      0.0957596193995978,
+      0.06164099304107523
+    ],
+    "peaks": {
+      "actuator": {
+        "compression": {
+          "peak_bar": 0.6875237346777894,
+          "time_s": 18.805,
+          "branch": "actuator_b",
+          "piston_velocity_m_s": -0.19671586646573921,
+          "volume_flow_m3_s": 0.0001928051056783632
+        },
+        "extension": {
+          "peak_bar": 0.7548564995062037,
+          "time_s": 18.905,
+          "branch": "actuator_a",
+          "piston_velocity_m_s": 0.12950880336016474,
+          "volume_flow_m3_s": -0.00012695227473306556
+        }
+      },
+      "accumulator_inlet": {
+        "compression": {
+          "peak_bar": 4.64281364350488,
+          "time_s": 18.905,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": -0.15053100939250055,
+          "volume_flow_m3_s": 0.0002394020352869656
+        },
+        "extension": {
+          "peak_bar": 4.206227179751366,
+          "time_s": 18.295,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": 0.32767444573173815,
+          "volume_flow_m3_s": -0.0005211747056464574
+        }
+      }
+    },
+    "maximum_relative_target_error": 0.3124762653222106,
+    "minimum_absolute_liquid_pressure_bar": 36.01325000000034
+  },
+  {
+    "iteration": 3,
+    "gains": [
+      0.022353317400997625,
+      0.020901559560290817,
+      0.08095402682489113,
+      0.05849647969853497
+    ],
+    "peaks": {
+      "actuator": {
+        "compression": {
+          "peak_bar": 1.0085795844149317,
+          "time_s": 18.55,
+          "branch": "actuator_a",
+          "piston_velocity_m_s": -0.19555172101901133,
+          "volume_flow_m3_s": 0.00019166267345553705
+        },
+        "extension": {
+          "peak_bar": 1.012619731348508,
+          "time_s": 18.905,
+          "branch": "actuator_b",
+          "piston_velocity_m_s": 0.1303654590774903,
+          "volume_flow_m3_s": -0.0001277926806087083
+        }
+      },
+      "accumulator_inlet": {
+        "compression": {
+          "peak_bar": 3.9323325841493073,
+          "time_s": 18.905,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": -0.15147512878726896,
+          "volume_flow_m3_s": 0.0002409070938180463
+        },
+        "extension": {
+          "peak_bar": 3.978557272931681,
+          "time_s": 18.295,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": 0.3197449717975701,
+          "volume_flow_m3_s": -0.0005085598408100573
+        }
+      }
+    },
+    "maximum_relative_target_error": 0.016916853962673173,
+    "minimum_absolute_liquid_pressure_bar": 36.01325000000034
+  },
+  {
+    "iteration": 3,
+    "verification": true,
+    "peaks": {
+      "actuator": {
+        "compression": {
+          "peak_bar": 1.0092475040558568,
+          "time_s": 18.805,
+          "branch": "actuator_a",
+          "piston_velocity_m_s": -0.19592431878677655,
+          "volume_flow_m3_s": 0.00019202790194261873
+        },
+        "extension": {
+          "peak_bar": 1.0127978423255115,
+          "time_s": 18.905,
+          "branch": "actuator_a",
+          "piston_velocity_m_s": 0.13042515405589186,
+          "volume_flow_m3_s": -0.00012785119628474484
+        }
+      },
+      "accumulator_inlet": {
+        "compression": {
+          "peak_bar": 3.932877083562232,
+          "time_s": 18.905,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": -0.15154552779046157,
+          "volume_flow_m3_s": 0.00024101905839772576
+        },
+        "extension": {
+          "peak_bar": 3.9755096240637755,
+          "time_s": 18.295,
+          "branch": "main_accumulator",
+          "piston_velocity_m_s": 0.31794688719888187,
+          "volume_flow_m3_s": -0.0005056997994991229
+        }
+      }
+    },
+    "maximum_relative_target_error": 0.01678072910944195,
+    "minimum_absolute_liquid_pressure_bar": 36.01325000000034
+  }
+]

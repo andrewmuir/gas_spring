@@ -1,0 +1,21 @@
+{
+  "max_difference_piston_position_m": 9.26867891957138e-07,
+  "max_difference_pressure_bar": 0.023098566677646204,
+  "max_difference_temperature_c": 0.058391428422964964,
+  "max_estimated_omitted_pressure_fraction": 0.0009441244353843111,
+  "max_estimated_gas_mach": 0.014430897147423714,
+  "sampled_energy_audit_max_j": 1.41411751537089,
+  "timing": {
+    "total_elapsed_wall_s": 299.80833180001355,
+    "wall_time_s": 298.4677015999914,
+    "process_cpu_time_s": 295.0625,
+    "total_process_cpu_time_s": 296.140625
+  },
+  "checks": {
+    "all_finite": true,
+    "maximum_volume_residual_m3": 3.378205621666565e-21,
+    "liquid_mass_drift_kg": -5.551115123125783e-16,
+    "nitrogen_mass_drift_kg": 0.0
+  },
+  "reference_provenance": "Existing user output; matching time and force input and initial 70-bar blow-off pressure, no stored original source/config hash."
+}

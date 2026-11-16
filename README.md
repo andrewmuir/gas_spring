@@ -20,6 +20,7 @@ python -m pytest -q
 For timing tests, `config/run_5s.yaml` uses `examples/inputs_5s.parquet`: the
 unchanged first 5 seconds of the full input, including the 4-second ramp and
 first second of cycling (1001 samples). Its output is `examples/output_5s.parquet`.
+Its initial blow-off pressure matches the current full run at 70 bar.
 
 ```powershell
 python -m gas_spring.cli --physical config/physical.yaml --run config/run_5s.yaml --simulate --diagnostics
@@ -33,6 +34,17 @@ Temporary parameter experiments use, for example,
 they do not edit the YAML files. See
 [the timing investigation](examples/benchmarks/investigation.md) for measured
 speed improvements, accuracy checks and parameter sensitivity results.
+The [solver options comparison](examples/benchmarks/solver_options.md) tests
+BDF, LSODA, restart spacing and tolerances against the current 70-bar blow-off
+setting, and ranks the next optimization work.
+The implemented [gas reduction and block Jacobian](examples/benchmarks/gas_reduction.md)
+includes a complete 19-second timing run and symmetric/asymmetric comparisons
+through 25 Hz.
+The subsequent [restriction calibration](examples/benchmarks/restriction_calibration.md)
+sets pressure-sensor white-noise standard deviation to 0.2 bar and fits the
+terminal valve losses to approximately 1 bar per actuator and 4 bar at the main
+accumulator inlet. These are operating-point targets for the current 19-second
+input, not fixed losses at every flow rate.
 
 ## Dashboard
 
@@ -85,6 +97,18 @@ volume approaches zero. The configured +7 mm stop is on the expansion side,
 where 50 mL initial gas volume has increased to about 61.1 mL. It is reachable
 and carries load through its elastic reaction. No liquid compliance is added.
 
+The connected actuator/reservoir gas uses one shared pressure and total energy.
+Each chamber and pipe cell retains its mass and temperature, including chamber
+boundary layers. Node energies follow `U_i = P*V_i/(gamma-1)`, and conservative
+enthalpy flows follow from the local energy balances. This removes the tiny
+pressure-relaxation states; the two closed accumulator gases remain separate
+ideal-gas springs. Connected-gas pressure loss and acoustic transients are
+neglected. The output estimates omitted Darcy losses and gas Mach number in
+`truth_gas_network_estimated_max_pressure_drop_pa`,
+`truth_gas_network_estimated_pressure_drop_fraction` and
+`truth_gas_network_estimated_max_mach_number`. `--diagnostics` prints the peak
+pressure-loss estimate so this approximation can be assessed for each load case.
+
 Heat-transport donor selection is smoothed only around flow reversal
 (1e-11 m3/s for liquid, 1e-8 kg/s for gas), along with the liquid restriction's
 zero-flow transition. Mass and energy fluxes remain equal and opposite across
@@ -98,8 +122,10 @@ integration steps, function/Jacobian evaluations, factorizations and stop events
 Total RHS calls include the evaluations needed to construct numerical Jacobians;
 SciPy's `nfev` counter excludes those. BDF replaces Radau after a five-second
 comparison and tolerance check. Thermal expansion-source accelerations are
-differentiated analytically, and the gas-flow calculation retains small pressure
-differences directly rather than subtracting reconstructed absolute pressures.
+differentiated analytically. The Newton Jacobian reuses the gas/thermal block
+and freezes weak thermal-volume acceleration coefficients during matrix
+construction. The physical RHS still solves the full differentiated liquid
+constraint; this approximation affects Newton iteration, not its target equations.
 Each diagnostic integration time refers to **that simulation window only**.
 Progress also shows total elapsed wall time, and completion reports the sum of
 all integration windows plus imports/loading, simulation setup and sampled
@@ -150,6 +176,12 @@ velocities are also recorded. Low-side gas pressure and temperature sensors use
 the reservoir. Sensor gain, offset, noise, drift and displacement temperature
 sensitivity use the profiles and seed in the YAML files.
 
+Dedicated valve diagnostics are `truth_<name>_restriction_pressure_drop_bar`,
+`truth_<name>_restriction_flow_m3_s` and
+`truth_<name>_restriction_dissipation_w`, for `actuator_a`, `actuator_b` and
+`main_accumulator`. Positive drop/flow is from the junction into the chamber.
+These isolate each restriction from pipe loss/inertia and piston forces.
+
 The truth output also includes total liquid and nitrogen mass, total stored
 energy and external power. `truth_sampled_energy_balance_residual_j` compares
 stored-energy change with external power integrated by the trapezoid rule at
@@ -166,8 +198,9 @@ shafts is reported separately as `truth_input_shaft_strain_energy_j`.
   tangent high-flow continuation so its inverse remains defined.
 - Nitrogen is represented as an ideal gas with constant heat capacities.
   Chambers use core and boundary temperatures; gas pipe cells use one
-  temperature each. Gas-pipe flow uses quasi-steady mean-density Darcy loss;
-  choking, gas inertia and real-gas corrections are not represented. These
+  temperature each. Connected low-side gas has algebraic common pressure and
+  conservative enthalpy transport; Darcy loss is estimated for diagnostics.
+  Choking, gas inertia and real-gas corrections are not represented. These
   approximations need particular scrutiny at blow-off pressures.
 - Liquid specific volume increases linearly with temperature:
   `v = (1 + alpha*(T - 20))/rho20`. Sensible energy uses constant configured

@@ -1,0 +1,27 @@
+[
+  {
+    "label": "solver_bdf",
+    "exit_code": 0,
+    "external_elapsed_s": 28.75240080000367
+  },
+  {
+    "label": "solver_lsoda",
+    "timed_out": true,
+    "external_elapsed_s": 70.03796839999268
+  },
+  {
+    "label": "solver_lsoda_auto",
+    "timed_out": true,
+    "external_elapsed_s": 70.0291185999813
+  },
+  {
+    "label": "solver_bdf_continuous",
+    "exit_code": 0,
+    "external_elapsed_s": 21.873612299998058
+  },
+  {
+    "label": "solver_bdf_looser",
+    "exit_code": 0,
+    "external_elapsed_s": 16.04957909998484
+  }
+]

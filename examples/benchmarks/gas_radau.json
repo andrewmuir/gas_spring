@@ -1,0 +1,366 @@
+{
+  "wall_time_s": 14.755831200018292,
+  "process_cpu_time_s": 14.484375,
+  "wall_time_scope": "simulate() only; excludes imports, input loading and result writing",
+  "simulation_wall_time_s": 14.755831200018292,
+  "preparation_wall_time_s": 1.0044252999941818,
+  "output_write_wall_time_s": 0.045406099990941584,
+  "profiled": false,
+  "auto_jacobian": false,
+  "method": "Radau",
+  "overrides": [
+    "run.initial_gas_gauge_pressure_bar.blowoff=70"
+  ],
+  "absolute_tolerance_scale": 1.0,
+  "samples": 1001,
+  "simulated_time_s": 5.0,
+  "solver": {
+    "pipe_cells": 3,
+    "actuator_wall_cells": 6,
+    "relative_tolerance": 1e-05,
+    "max_step_s": 0.05,
+    "max_events": 10000,
+    "progress_interval_s": 0.5,
+    "friction_model": "smooth",
+    "friction_velocity_scale_m_s": 0.005
+  },
+  "physical": {
+    "geometry": {
+      "actuator_count": 2,
+      "actuator_piston_diameter_m": 0.038,
+      "actuator_shaft_diameter_m": 0.014,
+      "actuator_fluid_chamber_length_at_zero_m": 0.055,
+      "actuator_gas_chamber_length_at_zero_m": 0.02,
+      "actuator_extension_travel_m": 0.05,
+      "actuator_compression_travel_m": 0.015,
+      "actuator_fluid_dead_volume_m3": 0.0,
+      "actuator_gas_dead_volume_m3": 0.0,
+      "blowoff_piston_diameter_m": 0.045,
+      "blowoff_shaft_diameter_m": 0.012,
+      "main_accumulator_piston_diameter_m": 0.045,
+      "main_gas_volume_at_zero_m3": 5e-05,
+      "main_accumulator_expansion_stop_m": 0.007,
+      "blowoff_gas_volume_at_zero_stop_m3": 0.001,
+      "actuator_input_shaft_stiffness_n_m": 20000000,
+      "hydraulic_pipe_diameter_m": 0.004,
+      "hydraulic_pipe_length_m": 1.0,
+      "gas_pipe_diameter_m": 0.004,
+      "gas_pipe_length_m": 1.0,
+      "low_pressure_reservoir_m3": 0.00015,
+      "main_accumulator_fluid_volume_at_zero_m3": 5e-05,
+      "blowoff_fluid_volume_at_zero_m3": 3e-05,
+      "hydraulic_junction_volume_m3": 5e-06,
+      "gas_junction_volume_m3": 1e-06,
+      "blowoff_connection_length_m": 0.05,
+      "blowoff_connection_diameter_m": 0.004,
+      "actuator_gas_connection_length_m": 0.05,
+      "actuator_gas_connection_diameter_m": 0.004
+    },
+    "end_stops": {
+      "stiffness_n_m": 10000000
+    },
+    "moving_masses_kg": {
+      "actuator_a": 0.1,
+      "actuator_b": 0.1,
+      "blowoff": 0.1,
+      "main_accumulator": 0.07
+    },
+    "attached_masses_kg": {
+      "actuator_a": 15.0,
+      "actuator_b": 15.0,
+      "blowoff": 0.0,
+      "main_accumulator": 0.0
+    },
+    "seal_friction": {
+      "kinetic_to_static_ratio": 1.0,
+      "actuator": {
+        "constant_n": 40,
+        "pressure_coefficient_n_pa": 2e-05
+      },
+      "main_accumulator": {
+        "constant_n": 60,
+        "pressure_coefficient_n_pa": 2e-05
+      },
+      "blowoff": {
+        "constant_n": 80,
+        "pressure_coefficient_n_pa": 2e-05
+      }
+    },
+    "fluid": {
+      "type": "DOT4",
+      "density_kg_m3_at_20c": 1062,
+      "volumetric_expansion_per_k": 0.0007,
+      "specific_heat_j_kg_k": 1500,
+      "thermal_conductivity_w_m_k": 0.2,
+      "dynamic_viscosity_pa_s": 0.01,
+      "dynamic_viscosity_pa_s_at_100c": 0.0021,
+      "pipe_roughness_m": 1e-06
+    },
+    "gas": {
+      "type": "nitrogen",
+      "molar_mass_kg_mol": 0.0280134,
+      "specific_gas_constant_j_kg_k": 296.8,
+      "specific_heat_cp_j_kg_k": 1040,
+      "dynamic_viscosity_pa_s_at_25c": 1.78e-05,
+      "thermal_conductivity_w_m_k_at_25c": 0.026
+    },
+    "thermal": {
+      "actuator_hot_ambient_to_housing_w_m2_k": 120,
+      "actuator_housing_mass_kg_each": 0.25,
+      "actuator_outer_heat_transfer_area_m2_each": 0.0149,
+      "actuator_outer_diameter_m": 0.048,
+      "metal_specific_heat_j_kg_k": 500,
+      "metal_thermal_conductivity_w_m_k": 45,
+      "metal_density_kg_m3": 7850,
+      "fluid_to_housing_w_m2_k": 300,
+      "liquid_boundary_mass_fraction": 0.2,
+      "liquid_core_to_boundary_w_m2_k": 200,
+      "gas_to_housing_w_m2_k": 15,
+      "gas_core_to_boundary_w_m2_k": 5,
+      "gas_boundary_mass_fraction": 0.2,
+      "actuator_piston_through_conductance_w_k": 10,
+      "main_accumulator_piston_through_conductance_w_k": 14,
+      "blowoff_piston_through_conductance_w_k": 14,
+      "hydraulic_pipe_fluid_to_wall_w_m2_k": 300,
+      "gas_pipe_gas_to_wall_w_m2_k": 15,
+      "pipe_wall_to_surroundings_w_m2_k": 10,
+      "pipe_outer_diameter_m": 0.006,
+      "accumulator_and_reservoir_housing_to_cooler_w_m2_k": 10,
+      "main_accumulator_housing_mass_kg": 0.5,
+      "blowoff_housing_mass_kg": 0.8,
+      "low_pressure_reservoir_housing_mass_kg": 0.3,
+      "main_accumulator_exposed_area_m2": 0.015,
+      "blowoff_exposed_area_m2": 0.115,
+      "low_pressure_reservoir_exposed_area_m2": 0.02,
+      "cooler_region_heat_capacity_j_k": 5000,
+      "cooler_base_conductance_w_k": 2,
+      "cooler_air_speed_conductance_w_k_per_m_s": 3,
+      "cooler_supply_air_temperature_c": 25,
+      "cooler_other_heat_input_w": 0
+    },
+    "restrictions": {
+      "high_flow_tail_fraction": 0.95,
+      "actuator": {
+        "compression": {
+          "speed_m_s": [
+            0.15,
+            0.8
+          ],
+          "force_n": [
+            4000,
+            6000
+          ]
+        },
+        "extension": {
+          "speed_m_s": [
+            0.15,
+            0.8
+          ],
+          "force_n": [
+            5000,
+            7000
+          ]
+        }
+      },
+      "accumulator_inlet": {
+        "compression": {
+          "speed_m_s": [
+            0.15,
+            0.8
+          ],
+          "force_n": [
+            4000,
+            6000
+          ]
+        },
+        "extension": {
+          "speed_m_s": [
+            0.15,
+            0.8
+          ],
+          "force_n": [
+            5000,
+            7000
+          ]
+        }
+      }
+    },
+    "sensor_profiles": {
+      "pressure": {
+        "noise_std": 0.01,
+        "drift_std_per_sqrt_hour": 0.005
+      },
+      "temperature": {
+        "noise_std": 0.05,
+        "drift_std_per_sqrt_hour": 0.02
+      },
+      "displacement": {
+        "noise_std": 0.005,
+        "drift_std_per_sqrt_hour": 0.0
+      },
+      "force": {
+        "noise_std": 5.0,
+        "drift_std_per_sqrt_hour": 2.0
+      }
+    }
+  },
+  "solver_totals": {
+    "solve_calls": 10,
+    "accepted_steps": 329,
+    "nfev": 3023,
+    "rhs_calls": 8498,
+    "jacobian_rhs_calls": 5475,
+    "njev": 75,
+    "nlu": 548,
+    "solve_wall_s": 12.819456899916986
+  },
+  "windows": [
+    {
+      "window_start_s": 0.0,
+      "time_s": 0.5,
+      "accepted_steps": 15,
+      "nfev": 134,
+      "njev": 2,
+      "nlu": 32,
+      "solve_wall_s": 0.4480877000023611,
+      "cumulative_solve_wall_s": 0.4480877000023611,
+      "simulation_elapsed_wall_s": 0.6263639999961015,
+      "min_step_s": 0.002754452901318218,
+      "max_step_s": 0.04999999999999999
+    },
+    {
+      "window_start_s": 0.5,
+      "time_s": 1.0,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.21820500001194887,
+      "cumulative_solve_wall_s": 0.66629270001431,
+      "simulation_elapsed_wall_s": 1.023552300001029,
+      "min_step_s": 0.018881719437724764,
+      "max_step_s": 0.050000000000000044
+    },
+    {
+      "window_start_s": 1.0,
+      "time_s": 1.5,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.2561050999793224,
+      "cumulative_solve_wall_s": 0.9223977999936324,
+      "simulation_elapsed_wall_s": 1.496107100014342,
+      "min_step_s": 0.015321020578739075,
+      "max_step_s": 0.050000000000000044
+    },
+    {
+      "window_start_s": 1.5,
+      "time_s": 2.0,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.21940669999457896,
+      "cumulative_solve_wall_s": 1.1418044999882113,
+      "simulation_elapsed_wall_s": 1.8994440000096802,
+      "min_step_s": 0.011660617631001902,
+      "max_step_s": 0.050000000000000044
+    },
+    {
+      "window_start_s": 2.0,
+      "time_s": 2.5,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.2297266999958083,
+      "cumulative_solve_wall_s": 1.3715311999840196,
+      "simulation_elapsed_wall_s": 2.2977949999913108,
+      "min_step_s": 0.009916115810610915,
+      "max_step_s": 0.04999999999999982
+    },
+    {
+      "window_start_s": 2.5,
+      "time_s": 3.0,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.21141189997433685,
+      "cumulative_solve_wall_s": 1.5829430999583565,
+      "simulation_elapsed_wall_s": 2.6838728000002448,
+      "min_step_s": 0.008889643372823386,
+      "max_step_s": 0.04999999999999982
+    },
+    {
+      "window_start_s": 3.0,
+      "time_s": 3.5,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.21739519998664036,
+      "cumulative_solve_wall_s": 1.8003382999449968,
+      "simulation_elapsed_wall_s": 3.0804660000139847,
+      "min_step_s": 0.008251969737624432,
+      "max_step_s": 0.04999999999999982
+    },
+    {
+      "window_start_s": 3.5,
+      "time_s": 4.0,
+      "accepted_steps": 11,
+      "nfev": 79,
+      "njev": 1,
+      "nlu": 22,
+      "solve_wall_s": 0.21756329998606816,
+      "cumulative_solve_wall_s": 2.017901599931065,
+      "simulation_elapsed_wall_s": 3.4728222000121605,
+      "min_step_s": 0.007846288874146179,
+      "max_step_s": 0.04999999999999982
+    },
+    {
+      "window_start_s": 4.0,
+      "time_s": 4.5,
+      "accepted_steps": 112,
+      "nfev": 1144,
+      "njev": 42,
+      "nlu": 190,
+      "solve_wall_s": 6.111054899985902,
+      "cumulative_solve_wall_s": 8.128956499916967,
+      "simulation_elapsed_wall_s": 9.805962400016142,
+      "min_step_s": 3.0334147222532692e-05,
+      "max_step_s": 0.020509601658543097
+    },
+    {
+      "window_start_s": 4.5,
+      "time_s": 5.0,
+      "accepted_steps": 125,
+      "nfev": 1192,
+      "njev": 24,
+      "nlu": 172,
+      "solve_wall_s": 4.690500400000019,
+      "cumulative_solve_wall_s": 12.819456899916986,
+      "simulation_elapsed_wall_s": 14.719865499995649,
+      "min_step_s": 5.628213272856897e-05,
+      "max_step_s": 0.03715882694582806
+    }
+  ],
+  "checks": {
+    "all_finite": true,
+    "maximum_volume_residual_m3": 3.374896899216353e-21,
+    "liquid_mass_drift_kg": -8.326672684688674e-17,
+    "nitrogen_mass_drift_kg": 0.0
+  },
+  "source_sha256": "5b0b59e90d3262c16e9b37fe96e87bb229e1a2c81cc530881ed2da69fd04c574",
+  "reference_archive": null,
+  "environment": {
+    "python": "3.13.5",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "platform": "Windows-11-10.0.26300-SP0"
+  },
+  "report_generation_wall_time_s": 0.03677619999507442,
+  "total_elapsed_wall_s": 15.842458200000692,
+  "total_process_cpu_time_s": 15.3125
+}

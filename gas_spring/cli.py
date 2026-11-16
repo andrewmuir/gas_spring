@@ -1,7 +1,6 @@
 """Command-line entry point for validation and the provisional simulator."""
 
 import argparse
-import math
 import os
 from pathlib import Path
 import sys
@@ -36,25 +35,9 @@ def print_diagnostic_model_context(physical, run, data):
         f"max_events={solver_options.get('max_events', 10000)}."
     )
     print(f"  Nitrogen gamma: {gamma:.4g}.")
-    gas_conductance = (
-        math.pi
-        * geometry["actuator_gas_connection_diameter_m"] ** 4
-        / (
-            128
-            * gas["dynamic_viscosity_pa_s_at_25c"]
-            * geometry["actuator_gas_connection_length_m"]
-        )
-    )
-    low_absolute = float(pressure["low"]) * 1e5 + 101325.0
-    relaxation_rate = (
-        gamma
-        * low_absolute
-        * gas_conductance
-        * (1 / volumes["actuator_a_gas"] + 1 / geometry["gas_junction_volume_m3"])
-    )
     print(
-        f"  Approximate laminar gas equalisation time (actuator/junction pair): "
-        f"{1/relaxation_rate:.3g} s; gas links currently omit inertia."
+        "  Connected gas: algebraic common pressure with separate thermal states; "
+        "pressure-relaxation states removed."
     )
     print(
         f"  End-stop stiffness: {physical.get('end_stops', {}).get('stiffness_n_m', 1e7):g} N/m per stop (10 kN/mm at the default)."
@@ -282,6 +265,15 @@ def main():
             sys.stdout.flush()
         simulation_wall_s = perf_counter() - simulation_started
         writing_started = perf_counter()
+        gas_drop = "truth_gas_network_estimated_max_pressure_drop_pa"
+        if args.diagnostics and gas_drop in result:
+            fraction = result[
+                "truth_gas_network_estimated_pressure_drop_fraction"
+            ].max()
+            print(
+                f"Reduced gas-network check: estimated omitted pressure drop peaks at "
+                f"{result[gas_drop].max()/1e5:.4f} bar ({100*fraction:.3f}% of absolute pressure)."
+            )
         pressure_channel = "truth_minimum_liquid_absolute_pressure_pa"
         if pressure_channel in result and result[pressure_channel].min() <= 0:
             minimum = float(result[pressure_channel].min())

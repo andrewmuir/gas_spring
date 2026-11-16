@@ -1,0 +1,56 @@
+input_parquet: 25hz_asymmetric_input.parquet
+output_parquet: 25hz_asymmetric_output.parquet
+seed: 12345
+hot_ambient:
+  source: constant
+  temperature_c: 120
+  column: hot_ambient_c
+blowoff_initial_travel_m: 0.0
+blowoff_max_travel_m: 0.05
+initial_gas_gauge_pressure_bar:
+  low: 15
+  main: 35
+  blowoff: 70
+initial_temperatures_c:
+  actuator_a_fluid: 50
+  actuator_b_fluid: 50
+  actuator_a_gas: 50
+  actuator_b_gas: 50
+  main_accumulator_fluid: 25
+  blowoff_fluid: 25
+  main_accumulator_gas: 25
+  blowoff_gas: 25
+  low_pressure_reservoir_gas: 25
+  actuator_a_housing_and_piston: 50
+  actuator_b_housing_and_piston: 50
+  main_accumulator_housing_and_piston: 25
+  blowoff_housing_and_piston: 25
+  low_pressure_reservoir_housing: 25
+  cooler_region: 25
+  pipe_surroundings: 25
+pipe_initial_temperature_profile: linear_between_connected_chambers
+solver:
+  pipe_cells: 3
+  actuator_wall_cells: 6
+  relative_tolerance: 1.0e-05
+  max_step_s: 0.001
+  max_events: 10000
+  progress_interval_s: 0.5
+  friction_model: smooth
+  friction_velocity_scale_m_s: 0.005
+sensor_locations:
+  low_pressure_gas_pressure: low_pressure_reservoir
+  low_pressure_gas_temperature: low_pressure_reservoir
+sensor_calibration:
+  default:
+    gain: 1.0
+    offset: 0.0
+  actuator_a_displacement:
+    temperature_coefficient: 0.0
+    reference_temperature_c: 20.0
+  actuator_b_displacement:
+    temperature_coefficient: 0.0
+    reference_temperature_c: 20.0
+  blowoff_displacement:
+    temperature_coefficient: 0.0
+    reference_temperature_c: 20.0

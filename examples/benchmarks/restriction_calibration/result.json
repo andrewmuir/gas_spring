@@ -1,0 +1,12 @@
+{
+  "converged": true,
+  "iteration": 3,
+  "label": "restriction_calibrated_3",
+  "physical_path": "C:\\Git\\gas_spring\\examples\\benchmarks\\restriction_calibration\\iteration_3.yaml",
+  "terminal_window_s": 1.0,
+  "targets_bar": {
+    "actuator": 1.0,
+    "accumulator_inlet": 4.0
+  },
+  "maximum_relative_target_error": 0.01678072910944195
+}

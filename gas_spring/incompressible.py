@@ -5,6 +5,8 @@ Positive actuator/main piston velocity is extension; positive blow-off velocity
 opens its liquid chamber. Thermal source rates are increases in liquid volume.
 """
 
+from .numerics import VOLUME_FLOW_TRANSITION_M3_S
+
 import math
 import numpy as np
 
@@ -201,16 +203,22 @@ def constrained_accelerations(
     actuator_curves, main_curves = curves("actuator"), curves("accumulator_inlet")
     branch_dp = {
         "actuator_a": regularized_restriction_pressure_drop(
-            flows["actuator_a"], *actuator_curves, tail, zero_flow_transition_m3_s=1e-11
+            flows["actuator_a"],
+            *actuator_curves,
+            tail,
+            zero_flow_transition_m3_s=VOLUME_FLOW_TRANSITION_M3_S,
         ),
         "actuator_b": regularized_restriction_pressure_drop(
-            flows["actuator_b"], *actuator_curves, tail, zero_flow_transition_m3_s=1e-11
+            flows["actuator_b"],
+            *actuator_curves,
+            tail,
+            zero_flow_transition_m3_s=VOLUME_FLOW_TRANSITION_M3_S,
         ),
         "main_accumulator": regularized_restriction_pressure_drop(
             flows["main_accumulator"],
             *main_curves,
             tail,
-            zero_flow_transition_m3_s=1e-11,
+            zero_flow_transition_m3_s=VOLUME_FLOW_TRANSITION_M3_S,
         ),
     }
     density = float(fluid["density_kg_m3_at_20c"])

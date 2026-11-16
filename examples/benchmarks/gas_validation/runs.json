@@ -1,0 +1,80 @@
+[
+  {
+    "case": "profile_5s",
+    "model": "reference",
+    "exit_code": 0,
+    "external_elapsed_s": 51.93359760000021
+  },
+  {
+    "case": "profile_5s",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 16.326582900015637
+  },
+  {
+    "case": "4hz",
+    "model": "reference",
+    "exit_code": 0,
+    "external_elapsed_s": 67.62598759998218
+  },
+  {
+    "case": "4hz",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 28.752917600009823
+  },
+  {
+    "case": "25hz",
+    "model": "reference",
+    "exit_code": 0,
+    "external_elapsed_s": 132.549620100006
+  },
+  {
+    "case": "25hz",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 38.078606499999296
+  },
+  {
+    "case": "25hz_asymmetric",
+    "model": "reference",
+    "timed_out": true,
+    "external_elapsed_s": 180.03565309999976
+  },
+  {
+    "case": "25hz_asymmetric",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 43.52695570001379
+  },
+  {
+    "case": "profile_5s",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 14.24712020001607
+  },
+  {
+    "case": "4hz",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 22.19011789999786
+  },
+  {
+    "case": "25hz",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 30.899023799982388
+  },
+  {
+    "case": "25hz_asymmetric",
+    "model": "reference",
+    "exit_code": 0,
+    "external_elapsed_s": 90.38070940002217
+  },
+  {
+    "case": "25hz_asymmetric",
+    "model": "reduced",
+    "exit_code": 0,
+    "external_elapsed_s": 24.834724500018638
+  }
+]
