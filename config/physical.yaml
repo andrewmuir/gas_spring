@@ -189,5 +189,5 @@ restrictions:
 sensor_profiles:
   pressure: {noise_std: 0.2, drift_std_per_sqrt_hour: 0.005} # bar, 1-sigma white noise
   temperature: {noise_std: 0.05, drift_std_per_sqrt_hour: 0.02} # deg C
-  displacement: {noise_std: 0.005, drift_std_per_sqrt_hour: 0.0} # mm
-  force: {noise_std: 5.0, drift_std_per_sqrt_hour: 2.0} # N
+  displacement: {noise_std: 0.3, drift_std_per_sqrt_hour: 0.0} # mm, 1-sigma white noise
+  force: {noise_std: 25.0, drift_std_per_sqrt_hour: 2.0} # N, 1-sigma white noise

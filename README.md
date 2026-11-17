@@ -201,6 +201,9 @@ shaft coordinate, including input-shaft compliance, while piston positions and
 velocities are also recorded. Low-side gas pressure and temperature sensors use
 the reservoir. Sensor gain, offset, noise, drift and displacement temperature
 sensitivity use the profiles and seed in the YAML files.
+White-noise standard deviations are 0.2 bar for pressure, 0.3 mm for all
+displacement channels, and 25 N for both actuator force channels. These are
+measurement-noise levels applied to the recorded sensor outputs.
 
 Dedicated valve diagnostics are `truth_<name>_restriction_pressure_drop_bar`,
 `truth_<name>_restriction_flow_m3_s` and
