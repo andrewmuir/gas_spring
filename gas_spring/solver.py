@@ -325,8 +325,14 @@ def simulate(
     progress_callback=None,
     diagnostics_callback=None,
 ):
-    """Integrate incompressible flow, gas, smooth seal friction and thermal states."""
+    """Integrate incompressible flow, gas, smooth seal friction and thermal states.
+
+    The returned DataFrame includes piston/shaft velocities and JSON-compatible
+    telemetry in ``attrs["solve_metrics"]``, retained by Parquet serialization.
+    Integration timings and actual accepted steps are separate from sampling.
+    """
     simulation_started = time.perf_counter()
+    simulation_cpu_started = time.process_time()
     cumulative_solve_wall_s = 0.0
     opts = run.get("solver", {})
     cells, wall_cells = opts.get("pipe_cells", 3), opts.get("actuator_wall_cells", 6)
@@ -376,12 +382,15 @@ def simulate(
     now = float(times[0])
     sample, count = 0, 0
     records = []
+    windows, contact_records = [], []
+    accepted_steps = {"time_s": [], "step_size_s": [], "window_index": []}
     checkpoint = (
         min(now + interval, float(times[-1]))
         if progress_callback or diagnostics_callback
         else float(times[-1])
     )
     window_start = now
+    window_wall_started, window_cpu_started = simulation_started, simulation_cpu_started
     stats, event_counts = Counter(), Counter()
     steps = []
     last_heartbeat = time.perf_counter()
@@ -391,45 +400,60 @@ def simulate(
             progress_callback(t, count)
 
     def diagnostics(t):
-        nonlocal window_start
+        nonlocal window_start, window_wall_started, window_cpu_started
+        snapshot = dict(
+            window_start_s=window_start,
+            time_s=t,
+            solve_calls=stats["calls"],
+            accepted_steps=stats["steps"],
+            nfev=stats["nfev"],
+            rhs_calls=stats["rhs_calls"],
+            jacobian_rhs_calls=stats["jacobian_rhs_calls"],
+            njev=stats["njev"],
+            nlu=stats["nlu"],
+            solve_wall_s=stats["wall"],
+            solve_cpu_s=stats["cpu"],
+            rhs_wall_s=stats["rhs_wall"],
+            jacobian_wall_s=stats["jacobian_wall"],
+            sampling_wall_s=stats["sampling_wall"],
+            window_elapsed_wall_s=time.perf_counter() - window_wall_started,
+            window_cpu_s=time.process_time() - window_cpu_started,
+            cumulative_solve_wall_s=cumulative_solve_wall_s,
+            simulation_elapsed_wall_s=time.perf_counter() - simulation_started,
+            min_step_s=min(steps, default=0),
+            max_step_s=max(steps, default=0),
+            median_step_s=float(np.median(steps)) if steps else 0.0,
+            event_counts=dict(event_counts),
+            event_intervals_s={},
+            warnings={},
+        )
+        # Callback keys remain compatible; Parquet metadata needs string keys.
+        windows.append({**snapshot, "event_counts": {
+            f"{name}/{kind}": number for (name, kind), number in event_counts.items()
+        }})
         if diagnostics_callback:
-            diagnostics_callback(
-                dict(
-                    window_start_s=window_start,
-                    time_s=t,
-                    solve_calls=stats["calls"],
-                    accepted_steps=stats["steps"],
-                    nfev=stats["nfev"],
-                    rhs_calls=stats["rhs_calls"],
-                    jacobian_rhs_calls=stats["jacobian_rhs_calls"],
-                    njev=stats["njev"],
-                    nlu=stats["nlu"],
-                    solve_wall_s=stats["wall"],
-                    cumulative_solve_wall_s=cumulative_solve_wall_s,
-                    simulation_elapsed_wall_s=time.perf_counter() - simulation_started,
-                    min_step_s=min(steps, default=0),
-                    max_step_s=max(steps, default=0),
-                    event_counts=dict(event_counts),
-                    event_intervals_s={},
-                    warnings={},
-                )
-            )
+            diagnostics_callback(snapshot)
         stats.clear()
         event_counts.clear()
         steps.clear()
         window_start = t
+        window_wall_started, window_cpu_started = time.perf_counter(), time.process_time()
 
     def rhs(t, y):
         nonlocal last_heartbeat
+        started = time.perf_counter()
         stats["rhs_calls"] += 1
         state = layout.unpack(y)
         rate = system.evaluate(state, interpolate(t), dep)
+        derivative = layout.derivative(rate, state)
+        stats["rhs_wall"] += time.perf_counter() - started
         if time.perf_counter() - last_heartbeat > 2:
             notify(now)
             last_heartbeat = time.perf_counter()
-        return layout.derivative(rate, state)
+        return derivative
 
     def jacobian(t, y):
+        started = time.perf_counter()
         # Near a loaded stop, velocities can be almost zero. SciPy's default
         # perturbation is then too small to resolve the pressure/friction
         # solve accurately. Use physical perturbation scales for this model.
@@ -474,6 +498,7 @@ def simulate(
             stats["rhs_calls"] += 1
             jac[:, i] = (layout.derivative(shifted_rate, shifted_state) - base) / step
         stats["jacobian_rhs_calls"] += stats["rhs_calls"] - before
+        stats["jacobian_wall"] += time.perf_counter() - started
         return jac
 
     # Contacts are continuous spring forces. These roots only report contact
@@ -500,6 +525,7 @@ def simulate(
     state_y = layout.y0
     while now < times[-1] - 1e-12:
         started = time.perf_counter()
+        cpu_started = time.process_time()
         solution = solve_ivp(
             rhs,
             (now, checkpoint),
@@ -519,8 +545,12 @@ def simulate(
         stats["nlu"] += solution.nlu
         solve_wall_s = time.perf_counter() - started
         stats["wall"] += solve_wall_s
+        stats["cpu"] += time.process_time() - cpu_started
         cumulative_solve_wall_s += solve_wall_s
         steps.extend(np.diff(solution.t).tolist())
+        accepted_steps["time_s"].extend(solution.t[1:].tolist())
+        accepted_steps["step_size_s"].extend(np.diff(solution.t).tolist())
+        accepted_steps["window_index"].extend([len(windows)] * (len(solution.t) - 1))
         if not solution.success:
             raise RuntimeError(
                 f"incompressible solve failed at {solution.t[-1]:g} s: {solution.message}"
@@ -540,17 +570,27 @@ def simulate(
         for stamp, name, kind in sorted(contact_events):
             count += 1
             event_counts[(name, kind)] += 1
+            contact_records.append(dict(time_s=stamp, piston=name, kind=kind))
             if event_callback:
                 event_callback(stamp, name, kind)
         if count > opts.get("max_events", 10000):
             raise RuntimeError(f"too many end-stop contact events at {end:g} s")
+        sampling_started = time.perf_counter()
         while sample < len(times) and times[sample] <= end + 1e-12:
             stamp = float(times[sample])
             state = layout.unpack(solution.sol(stamp))
             u = interpolate(stamp)
             rate = system.evaluate(state, u, dep)
-            records.append(_record(state, rate, stamp, system, u))
+            record = _record(state, rate, stamp, system, u)
+            for name in ("actuator_a", "actuator_b"):
+                # Same shaft coordinate as truth_<actuator>_displacement_mm.
+                record[f"truth_{name}_shaft_velocity_m_s"] = (
+                    state["velocity"][name] + interpolate.force_rate_n_s(name, stamp) /
+                    system.g["actuator_input_shaft_stiffness_n_m"]
+                )
+            records.append(record)
             sample += 1
+        stats["sampling_wall"] += time.perf_counter() - sampling_started
         state_y = solution.y[:, -1].copy()
         now = end
         notify(now)
@@ -565,4 +605,36 @@ def simulate(
     truth["truth_sampled_energy_balance_residual_j"] = (
         truth.truth_system_energy_j - truth.truth_system_energy_j.iloc[0] - work
     )
-    return add_sensor_measurements(truth, physical, run)
+    result = add_sensor_measurements(truth, physical, run)
+    elapsed = time.perf_counter() - simulation_started
+    integration_wall = sum(w["solve_wall_s"] for w in windows)
+    step_sizes = accepted_steps["step_size_s"]
+    summary = dict(
+        method="BDF", state_count=len(layout.y0), output_samples=len(result),
+        start_time_s=float(times[0]), end_time_s=float(times[-1]),
+        simulated_duration_s=float(times[-1] - times[0]),
+        simulation_elapsed_wall_s=elapsed,
+        simulation_cpu_s=time.process_time() - simulation_cpu_started,
+        integration_wall_s=integration_wall,
+        integration_cpu_s=sum(w["solve_cpu_s"] for w in windows),
+        simulation_overhead_wall_s=max(0.0, elapsed - integration_wall),
+        rhs_wall_s=sum(w["rhs_wall_s"] for w in windows),
+        jacobian_wall_s=sum(w["jacobian_wall_s"] for w in windows),
+        sampling_wall_s=sum(w["sampling_wall_s"] for w in windows),
+        min_step_s=min(step_sizes), max_step_s=max(step_sizes),
+        median_step_s=float(np.median(step_sizes)), contact_events=len(contact_records),
+    )
+    for key in ("solve_calls", "accepted_steps", "nfev", "njev", "nlu",
+                "rhs_calls", "jacobian_rhs_calls"):
+        summary[key] = sum(w[key] for w in windows)
+    result.attrs["solve_metrics"] = dict(
+        schema_version=1, summary=summary, windows=windows, steps=accepted_steps,
+        events=contact_records,
+        settings=dict(relative_tolerance=rtol, max_step_s=max_step,
+                      min_absolute_tolerance=float(min(layout.atol)),
+                      max_absolute_tolerance=float(max(layout.atol)),
+                      checkpoint_interval_s=interval, pipe_cells=cells,
+                      actuator_wall_cells=wall_cells),
+        timing_scope="Simulation setup through sampled outputs and sensors; excludes imports, input loading and file writing.",
+    )
+    return result

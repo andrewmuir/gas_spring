@@ -51,6 +51,18 @@ class InputInterpolator:
             result[name] = transfer_force(result[name], float(time_s))
         return result
 
+    def force_rate_n_s(self, name, time_s):
+        """Slope of the interpolated force; right-sided at knots, left at the end."""
+        if name not in ("actuator_a", "actuator_b"):
+            raise ValueError("force rate is only defined for actuators")
+        if not np.isfinite(time_s) or not self.sample_time[0] <= time_s <= self.sample_time[-1]:
+            raise ValueError("requested time lies outside input history")
+        index = min(np.searchsorted(self.sample_time, time_s, side="right") - 1,
+                    len(self.sample_time) - 2)
+        values = self.data[name + "_force_n"]
+        return float((values[index + 1] - values[index]) /
+                     (self.sample_time[index + 1] - self.sample_time[index]))
+
 
 def interpolate_inputs(frame, time_s):
     """Linearly interpolate validated input channels within the supplied span.

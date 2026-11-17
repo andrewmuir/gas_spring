@@ -142,7 +142,7 @@ def _select_and_plot(frame: pd.DataFrame, title: str, options: list[str], unit: 
     if selected:
         st.plotly_chart(
             _fig(frame, selected, title, unit, multipliers),
-            use_container_width=True,
+            width="stretch",
             key=f"chart_{key}",
         )
 
@@ -165,7 +165,7 @@ def _channel_groups(frame: pd.DataFrame) -> dict[str, tuple[list[str], str, dict
         "Pressure": (pressure, "Pressure (bar gauge)", {}),
         "Temperature": (temperature, "Temperature (°C)", {}),
         "Displacement": (displacement + position, "Displacement (mm)", {c: 1000.0 for c in position}),
-        "Piston velocity": (velocity, "Velocity (m/s)", {}),
+        "Piston and shaft velocity": (velocity, "Velocity (m/s)", {}),
         "Force": (force, "Force (N)", {}),
         "Hydraulic mass flow": (liq_flow, "Mass flow (kg/s)", {}),
         "Hydraulic pipe volume flow": (hydraulic_volume, "Volume flow (m³/s)", {}),
@@ -249,13 +249,13 @@ def _sensors(frame: pd.DataFrame) -> None:
         fig.update_layout(title=_pretty(sensor_column), xaxis_title="Time (s)",
                           yaxis_title=suffix_unit, hovermode="x unified",
                           margin={"l": 55, "r": 20, "t": 65, "b": 45})
-        st.plotly_chart(fig, use_container_width=True, key=f"sensor_{sensor_column}")
+        st.plotly_chart(fig, width="stretch", key=f"sensor_{sensor_column}")
         if show_error:
             error_frame = frame.copy()
             error_frame["_sensor_error"] = frame[sensor_column] - frame[truth_column]
             err_fig = _fig(error_frame, ["_sensor_error"],
                            f"{_pretty(sensor_column)} error", f"Error ({unit})")
-            st.plotly_chart(err_fig, use_container_width=True, key=f"sensor_error_{sensor_column}")
+            st.plotly_chart(err_fig, width="stretch", key=f"sensor_error_{sensor_column}")
 
 
 def _overview(frame: pd.DataFrame) -> None:
@@ -302,6 +302,109 @@ def _overview(frame: pd.DataFrame) -> None:
                      temperature_default, "overview_temperature", temperature_scale)
     _select_and_plot(frame, "Displacement", motion_columns, motion_unit,
                      motion_default, "overview_motion", motion_scale)
+    velocity_columns, velocity_unit, _ = groups["Piston and shaft velocity"]
+    velocity_default = []
+    for name in ("a", "b"):
+        channel = f"truth_actuator_{name}_shaft_velocity_m_s"
+        if channel not in frame:
+            channel = f"truth_actuator_{name}_piston_velocity_m_s"
+        velocity_default.append(channel)
+    _select_and_plot(frame, "Actuator velocity", velocity_columns, velocity_unit,
+                     velocity_default, "overview_velocity")
+    st.caption("Shaft velocity includes elastic shaft stretch and matches the actuator displacement coordinate. "
+               "Piston velocity is also available in the channel selector. Positive velocity is extension.")
+
+
+def _solve_metrics(frame: pd.DataFrame) -> None:
+    st.subheader("Solve metrics")
+    metrics = frame.attrs.get("solve_metrics")
+    if not metrics:
+        st.info("This output predates saved solve metrics. Run the simulation again with the updated CLI "
+                "to record internal steps and timings in the output Parquet file.")
+        return
+    if metrics.get("schema_version") != 1:
+        st.warning("This file uses an unsupported solve-metrics format.")
+        return
+    summary = metrics["summary"]
+    st.caption("Metrics cover the complete run, regardless of the displayed output time range. "
+               + metrics["timing_scope"])
+    slots = st.columns(4)
+    for slot, label, value in zip(slots, (
+        "Simulated duration", "Simulation elapsed", "Integration wall time", "Simulation CPU time",
+    ), (
+        summary["simulated_duration_s"], summary["simulation_elapsed_wall_s"],
+        summary["integration_wall_s"], summary["simulation_cpu_s"],
+    )):
+        slot.metric(label, f"{value:.3g} s")
+    slots = st.columns(4)
+    for slot, label, key in zip(slots, (
+        "Accepted steps", "RHS calls (including Jacobians)", "Jacobian evaluations", "LU factorizations",
+    ), ("accepted_steps", "rhs_calls", "njev", "nlu")):
+        slot.metric(label, f"{summary[key]:,}")
+    slots = st.columns(4)
+    for slot, label, key in zip(slots[:3], ("Minimum step", "Median step", "Maximum step"),
+                                ("min_step_s", "median_step_s", "max_step_s")):
+        slot.metric(label, f"{summary[key]:.3g} s")
+    speed = summary["simulated_duration_s"] / max(summary["simulation_elapsed_wall_s"], 1e-12)
+    slots[3].metric("Simulation speed", f"{speed:.3g} sim s / wall s")
+    st.caption(f"{summary['method']} · {summary['state_count']} independent states · "
+               f"{summary['solve_calls']} integration windows · {summary['contact_events']} end-stop events. "
+               "Step sizes are accepted internal integration steps; the output sample interval is separate. "
+               "SciPy nfev excludes work inside the supplied numerical Jacobian.")
+
+    steps = pd.DataFrame(metrics["steps"])
+    windows = pd.DataFrame(metrics["windows"])
+    if not steps.empty:
+        log_steps = st.checkbox("Logarithmic step-size axis", value=True, key="metrics_log_steps")
+        fig = _fig(steps, ["step_size_s"], "Accepted integration step size", "Step size (s)")
+        fig.update_yaxes(type="log" if log_steps else "linear")
+        st.plotly_chart(fig, width="stretch", key="metrics_step_sizes")
+
+    if not windows.empty:
+        performance = windows.copy()
+        performance["integration_wall_s"] = performance["solve_wall_s"]
+        performance["simulated_duration_s"] = performance.time_s - performance.window_start_s
+        performance["wall_seconds_per_simulated_second"] = (
+            performance.solve_wall_s / performance.simulated_duration_s
+        )
+        performance["rhs_calls_per_accepted_step"] = (
+            performance.rhs_calls / performance.accepted_steps.replace(0, np.nan)
+        )
+        st.plotly_chart(_fig(performance, ["integration_wall_s", "jacobian_wall_s", "rhs_wall_s"],
+                             "Integration cost by window", "Wall time (s)"),
+                        width="stretch", key="metrics_window_wall")
+        st.caption("Jacobian and regular RHS timings are separate parts of integration time. "
+                   "Window timings include all internal attempts; rejected step sizes are not exposed by SciPy.")
+        st.plotly_chart(_fig(performance, ["rhs_calls", "jacobian_rhs_calls", "nlu"],
+                             "Solver work by window", "Calls / factorizations"),
+                        width="stretch", key="metrics_window_work")
+
+        timing = {
+            "Numerical Jacobian": summary["jacobian_wall_s"],
+            "Regular RHS": summary["rhs_wall_s"],
+            "Other integration work": max(0.0, summary["integration_wall_s"]
+                                           - summary["jacobian_wall_s"] - summary["rhs_wall_s"]),
+            "Output sampling": summary["sampling_wall_s"],
+            "Setup, sensors and other simulation work": max(0.0, summary["simulation_overhead_wall_s"]
+                                                            - summary["sampling_wall_s"]),
+        }
+        fig = go.Figure(go.Bar(x=list(timing.values()), y=list(timing), orientation="h"))
+        fig.update_layout(title="Simulation wall-time breakdown", xaxis_title="Wall time (s)",
+                          margin={"l": 20, "r": 20, "t": 55, "b": 45}, height=340)
+        st.plotly_chart(fig, width="stretch", key="metrics_timing_breakdown")
+        st.subheader("Integration windows")
+        st.dataframe(performance.drop(columns=["event_intervals_s", "warnings"], errors="ignore"),
+                     width="stretch", hide_index=True)
+        st.download_button("Download window metrics CSV", performance.to_csv(index=False),
+                           "solve_windows.csv", "text/csv", key="download_metrics_windows")
+    if not steps.empty:
+        st.download_button("Download accepted steps CSV", steps.to_csv(index=False),
+                           "solve_steps.csv", "text/csv", key="download_metrics_steps")
+    with st.expander("Solver settings and counters"):
+        st.json({"settings": metrics["settings"], "summary": summary})
+    if metrics["events"]:
+        with st.expander("End-stop contact and release events"):
+            st.dataframe(pd.DataFrame(metrics["events"]), width="stretch", hide_index=True)
 
 
 def main() -> None:
@@ -321,8 +424,8 @@ def main() -> None:
         display_frame = None
         st.warning(f"Simulation output is not loaded: {output_source}")
 
-    overview_tab, channels_tab, sensors_tab, input_tab, audit_tab = st.tabs(
-        ["Overview", "All channels", "Sensor checks", "Input profile", "Mass & energy"]
+    overview_tab, channels_tab, sensors_tab, input_tab, audit_tab, metrics_tab = st.tabs(
+        ["Overview", "All channels", "Sensor checks", "Input profile", "Mass & energy", "Solve metrics"]
     )
 
     with overview_tab:
@@ -371,5 +474,12 @@ def main() -> None:
                 "Sparse output can make this diagnostic appear larger."
             )
 
+    with metrics_tab:
+        if output_frame is None:
+            st.info("Load a simulation output Parquet to see solve metrics.")
+        else:
+            _solve_metrics(output_frame)
 
-main()
+
+if __name__ == "__main__":
+    main()

@@ -63,6 +63,32 @@ plots, virtual sensor versus truth comparisons, input force and environment
 profiles, and mass/energy audit plots. Large traces are downsampled for display;
 the source Parquet files are not altered.
 
+The overview includes actuator velocity. Each new result contains
+`truth_actuator_a_shaft_velocity_m_s` and `truth_actuator_b_shaft_velocity_m_s`,
+alongside the existing `truth_<piston>_piston_velocity_m_s` channels. Shaft
+velocity is piston velocity plus the rate of elastic shaft stretch (`dF/dt / k`),
+so it uses the same coordinate as actuator displacement. Positive is extension.
+Force inputs are piecewise linear: their slope is right-sided at sample knots
+and left-sided at the final sample. Velocities are model truth, with no added
+sensor noise.
+
+The **Solve metrics** tab shows accepted internal step sizes, integration time
+per checkpoint window, simulation elapsed and CPU time, RHS/Jacobian costs,
+evaluation counts, LU factorizations, stop events, and solver settings. Window
+metrics and individual accepted steps can be downloaded as CSV. These metrics
+cover the complete run even when the output plots use a shorter time window.
+Step sizes are the actual accepted integrator steps, independent of the output
+sampling interval. SciPy does not expose rejected step sizes; timing and work
+counters include that work. No per-step solve time is inferred from window time.
+
+Metrics are saved automatically, with or without `--diagnostics`, in the output
+Parquet's pandas metadata. For Python use, read them with
+`pd.read_parquet(path).attrs["solve_metrics"]` (keys: `summary`, `windows`,
+`steps`, `events`, `settings`). They stay with a local file or uploaded result;
+no companion files are needed. Older outputs still open, but need a new run to
+gain saved solve metrics. Stored simulation timing excludes imports, input
+loading, and file writing; the CLI separately reports complete command timing.
+
 Without `--simulate`, the CLI validates inputs only. `--initialize` also checks
 that the first forces can be held at rest by the specified initial gas pressures,
 stops and provisional seal friction. The example
