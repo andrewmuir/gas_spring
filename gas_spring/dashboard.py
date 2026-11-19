@@ -200,16 +200,26 @@ def _input_profile(frame: pd.DataFrame | None, source: str) -> None:
         st.info(source)
         return
     st.caption(f"Loaded {source} · {len(frame):,} samples")
-    numeric = [c for c in frame.columns if c != "time_s" and pd.api.types.is_numeric_dtype(frame[c])]
-    buckets: dict[str, list[str]] = {"Force (N)": [], "Temperature (°C)": [], "Speed (m/s)": [], "Other channels": []}
+    numeric = [c for c in frame.columns if c != "time_s" and pd.api.types.is_numeric_dtype(frame[c])
+               and not pd.api.types.is_bool_dtype(frame[c])]
+    buckets: dict[str, list[str]] = {
+        "Force (N)": [], "Temperature (°C)": [], "Speed (m/s)": [], "Speed (km/h)": [],
+        "Acceleration (g)": [], "Acceleration (m/s²)": [], "Distance (m)": [], "Other channels": [],
+    }
     for column in numeric:
         lowered = column.lower()
         if "force" in lowered or lowered.endswith("_force_n"):
             buckets["Force (N)"].append(column)
         elif "temp" in lowered:
             buckets["Temperature (°C)"].append(column)
+        elif "acceleration" in lowered:
+            unit = "Acceleration (g)" if lowered.endswith("_g") else "Acceleration (m/s²)"
+            buckets[unit].append(column)
+        elif "distance" in lowered and lowered.endswith("_m"):
+            buckets["Distance (m)"].append(column)
         elif "speed" in lowered or "velocity" in lowered:
-            buckets["Speed (m/s)"].append(column)
+            unit = "Speed (km/h)" if lowered.endswith(("_kph", "_km_h", "_kmh")) else "Speed (m/s)"
+            buckets[unit].append(column)
         else:
             buckets["Other channels"].append(column)
     for index, (unit, options) in enumerate(buckets.items()):

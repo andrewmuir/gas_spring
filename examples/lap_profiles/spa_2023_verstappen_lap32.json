@@ -1,0 +1,67 @@
+{
+  "kinematics_schema_version": 1,
+  "track": "spa",
+  "circuit": "Spa-Francorchamps",
+  "year": 2023,
+  "session": "Race",
+  "driver": "Max Verstappen",
+  "team": "Red Bull Racing",
+  "driver_number": 1,
+  "lap_number": 32,
+  "session_key": 9141,
+  "lap_duration_s": 108.922,
+  "native_sample_count": 411,
+  "native_position_sample_count": 406,
+  "boundary_sample_count": 2,
+  "minimum_speed_kph": 71.0,
+  "maximum_speed_kph": 316.0,
+  "native_interval_max_s": 0.9599999999999937,
+  "observed_samples_per_second": 3.773342391803309,
+  "integrated_distance_m": 6936.221870058761,
+  "speed_unit": "km/h",
+  "acceleration_units": [
+    "m/s^2",
+    "g (9.80665 m/s^2)"
+  ],
+  "start_utc": "2023-07-30T14:02:24.106000+00:00",
+  "sources": {
+    "sessions": "https://api.openf1.org/v1/sessions?year=2023&session_name=Race",
+    "laps": "https://api.openf1.org/v1/laps?session_key=9141&driver_number=1",
+    "telemetry": "https://api.openf1.org/v1/car_data?session_key=9141&driver_number=1&date%3E=2023-07-30T14%3A02%3A21.106000%2B00%3A00&date%3C=2023-07-30T14%3A04%3A16.028000%2B00%3A00",
+    "location": "https://api.openf1.org/v1/location?session_key=9141&driver_number=1&date%3E=2023-07-30T14%3A02%3A21.106000%2B00%3A00&date%3C=2023-07-30T14%3A04%3A16.028000%2B00%3A00",
+    "documentation": "https://openf1.org/docs/",
+    "location_documentation": "https://openf1.org/docs/#location",
+    "official_timing": "https://www.fia.com/events/fia-formula-one-world-championship/season-2023/belgian-grand-prix/race-classification"
+  },
+  "selection": "Fastest returned Verstappen race lap with complete consistent sector times, excluding first lap and pit entry/exit laps; not necessarily the fastest lap of the entire race.",
+  "acceleration_source": "Derived kinematic estimates, not measured accelerometer channels",
+  "longitudinal_method": "Local cubic derivative of speed/3.6; positive accelerating, negative braking",
+  "lateral_method": "v*(x_dot*y_ddot-y_dot*x_ddot)/(x_dot^2+y_dot^2); positive left in the published XY plane; ignores banking, gradient and sideslip",
+  "smoothing": {
+    "method": "Gaussian-weighted local cubic on original irregular timestamps",
+    "speed_window_s": 1.5,
+    "position_window_s": 2.0,
+    "minimum_samples": 7,
+    "actual_speed_fit_span_range_s": [
+      1.1189999999999998,
+      2.519999999999996
+    ],
+    "actual_position_fit_span_range_s": [
+      1.16,
+      2.4599999999999973
+    ],
+    "max_source_gap_s": 0.75,
+    "gap_policy": "Supports with larger gaps produce NaN acceleration and a false validity flag"
+  },
+  "lateral_valid_fraction": 0.9588377723970944,
+  "longitudinal_valid_fraction": 0.9612590799031477,
+  "min_longitudinal_g": -3.255479305732868,
+  "max_longitudinal_g": 1.594321385725781,
+  "min_lateral_g": -5.566057692131984,
+  "max_lateral_g": 5.982331514691781,
+  "max_position_gap_s": 0.879999999999999,
+  "processing": "Native in-lap speeds retained; only speed endpoints interpolated. Acceleration fits use buffered samples from neighboring laps. No time/distance rescaling or acceleration clipping.",
+  "processed_utc": "2026-11-17T08:38:53.402197+00:00",
+  "distance_definition": "Cumulative trapezoidal integral of speed/3.6, not surveyed track distance",
+  "time_alignment": "OpenF1 lap date_start is approximate; elapsed time runs from that start to the reported lap duration"
+}

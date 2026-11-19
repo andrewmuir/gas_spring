@@ -46,6 +46,13 @@ terminal valve losses to approximately 1 bar per actuator and 4 bar at the main
 accumulator inlet. These are operating-point targets for the current 19-second
 input, not fixed losses at every flow rate.
 
+The [lap profile collection](examples/lap_profiles/README.md) contains Barcelona
+and ten other 2023 circuits, using Verstappen race laps. Each includes speed in
+km/h and estimated longitudinal/lateral acceleration in m/s² and g, with
+CSV/Parquet data, plots, validity flags and original source records for
+developing vehicle-based input profiles. Acceleration is derived from speed
+and approximate position, with smoothing and source gaps documented.
+
 ## Dashboard
 
 Install the optional dashboard dependencies and start the local viewer from the
