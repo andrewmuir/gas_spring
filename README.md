@@ -377,6 +377,12 @@ shafts is reported separately as `truth_input_shaft_strain_energy_j`.
 
 ## Model and limitations
 
+See the [current model reference](docs/current_model.md) for the circuit,
+governing equations, thermal states, initialization, solver and output units.
+
+See the [four reduced model proposals](docs/model_fidelity_proposals.md) for
+alternatives aimed at faster lap sweeps and simpler parameter studies.
+
 - The hydraulic circuit has separate actuator restrictions, a finite-volume
   pipe with inertance and loss, the blow-off branch, and a separate main inlet
   restriction. The original fitted restriction asymptote has a provisional
