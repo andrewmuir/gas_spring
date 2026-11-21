@@ -11,7 +11,7 @@ from .coupling import IncompressibleSystem, PISTONS
 from .force_input import InputInterpolator, shaft_position_m
 from .initialization import initialize_system
 from .materials import ATMOSPHERIC_PRESSURE_PA, liquid_temperatures
-from .mechanics import effective_piston_mass_kg
+from .mechanics import InvalidChamberVolume, effective_piston_mass_kg
 from .hydraulics import pipe_inertance
 from .sensors import add_sensor_measurements
 
@@ -206,9 +206,14 @@ def _record(s, rate, t, system, u):
     for name in ("actuator_a", "actuator_b"):
         force = u[name + "_force_n"]
         result[f"truth_{name}_force_n"] = force
+        result[f"truth_{name}_roll_spring_force_n"] = rate["roll_spring_force_n"][name]
         result[f"truth_{name}_displacement_mm"] = 1000 * shaft_position_m(
             s["position"][name], force, system.g["actuator_input_shaft_stiffness_n_m"]
         )
+    result["truth_roll_spring_displacement_mm"] = 1000 * (
+        s["position"]["actuator_a"] - s["position"]["actuator_b"]
+    )
+    result["truth_roll_spring_energy_j"] = rate["roll_spring_energy_j"]
     # Report the loss at each restriction separately from pipe/piston inertia.
     for name, chamber, junction in (
         ("actuator_a", "actuator_a_fluid", "hydraulic_inlet_junction"),
@@ -275,6 +280,7 @@ def _record(s, rate, t, system, u):
         + piston_energy
         + pipe_energy
         + sum(stop["energy_j"] for stop in rate["end_stops"].values())
+        + rate["roll_spring_energy_j"]
         + sum(
             n["internal_energy_j"]
             for group in ("liquid", "gas")
@@ -392,7 +398,7 @@ def simulate(
     window_start = now
     window_wall_started, window_cpu_started = simulation_started, simulation_cpu_started
     stats, event_counts = Counter(), Counter()
-    steps = []
+    steps, retries = [], []
     last_heartbeat = time.perf_counter()
 
     def notify(t):
@@ -405,6 +411,7 @@ def simulate(
             window_start_s=window_start,
             time_s=t,
             solve_calls=stats["calls"],
+            step_retries=retries.copy(),
             accepted_steps=stats["steps"],
             nfev=stats["nfev"],
             rhs_calls=stats["rhs_calls"],
@@ -436,6 +443,7 @@ def simulate(
         stats.clear()
         event_counts.clear()
         steps.clear()
+        retries.clear()
         window_start = t
         window_wall_started, window_cpu_started = time.perf_counter(), time.process_time()
 
@@ -524,29 +532,43 @@ def simulate(
     notify(now)
     state_y = layout.y0
     while now < times[-1] - 1e-12:
-        started = time.perf_counter()
-        cpu_started = time.process_time()
-        solution = solve_ivp(
-            rhs,
-            (now, checkpoint),
-            state_y,
-            method="BDF",
-            jac=jacobian,
-            rtol=rtol,
-            atol=layout.atol,
-            max_step=max_step,
-            events=events,
-            dense_output=True,
-        )
-        stats["calls"] += 1
+        window_max_step = min(max_step, checkpoint - now)
+        for attempt in range(8):
+            started = time.perf_counter()
+            cpu_started = time.process_time()
+            stats["calls"] += 1
+            try:
+                solution = solve_ivp(
+                    rhs,
+                    (now, checkpoint),
+                    state_y,
+                    method="BDF",
+                    jac=jacobian,
+                    rtol=rtol,
+                    atol=layout.atol,
+                    max_step=window_max_step,
+                    events=events,
+                    dense_output=True,
+                )
+            except InvalidChamberVolume as exc:
+                if attempt == 7:
+                    raise RuntimeError(
+                        f"incompressible solve could not stay in the chamber volume domain "
+                        f"over {now:g}–{checkpoint:g} s with max_step={window_max_step:g} s: {exc}"
+                    ) from exc
+                window_max_step *= 0.5
+                retries.append({"reason": str(exc), "max_step_s": window_max_step})
+            else:
+                break
+            finally:
+                solve_wall_s = time.perf_counter() - started
+                stats["wall"] += solve_wall_s
+                stats["cpu"] += time.process_time() - cpu_started
+                cumulative_solve_wall_s += solve_wall_s
         stats["steps"] += len(solution.t) - 1
         stats["nfev"] += solution.nfev
         stats["njev"] += solution.njev
         stats["nlu"] += solution.nlu
-        solve_wall_s = time.perf_counter() - started
-        stats["wall"] += solve_wall_s
-        stats["cpu"] += time.process_time() - cpu_started
-        cumulative_solve_wall_s += solve_wall_s
         steps.extend(np.diff(solution.t).tolist())
         accepted_steps["time_s"].extend(solution.t[1:].tolist())
         accepted_steps["step_size_s"].extend(np.diff(solution.t).tolist())
@@ -623,6 +645,7 @@ def simulate(
         sampling_wall_s=sum(w["sampling_wall_s"] for w in windows),
         min_step_s=min(step_sizes), max_step_s=max(step_sizes),
         median_step_s=float(np.median(step_sizes)), contact_events=len(contact_records),
+        step_retries=sum(len(window["step_retries"]) for window in windows),
     )
     for key in ("solve_calls", "accepted_steps", "nfev", "njev", "nlu",
                 "rhs_calls", "jacobian_rhs_calls"):
@@ -634,7 +657,8 @@ def simulate(
                       min_absolute_tolerance=float(min(layout.atol)),
                       max_absolute_tolerance=float(max(layout.atol)),
                       checkpoint_interval_s=interval, pipe_cells=cells,
-                      actuator_wall_cells=wall_cells),
+                      actuator_wall_cells=wall_cells,
+                      roll_spring_stiffness_n_m=system.roll_spring_stiffness),
         timing_scope="Simulation setup through sampled outputs and sensors; excludes imports, input loading and file writing.",
     )
     return result

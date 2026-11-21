@@ -5,7 +5,7 @@ import pandas as pd
 import yaml
 from .hydraulics import DigressiveCurve, piston_area
 from .materials import liquid_internal_energy, liquid_density, liquid_viscosity
-from .mechanics import chamber_volumes, seal_friction_limit
+from .mechanics import chamber_volumes, roll_spring_stiffness_n_m, seal_friction_limit
 
 CORE_COLUMNS = ("time_s", "actuator_a_force_n", "actuator_b_force_n", "duct_air_speed_m_s")
 COLUMNS = CORE_COLUMNS + ("hot_ambient_c",)
@@ -67,6 +67,7 @@ def load_inputs(run, run_path):
     return frame
 
 def validate_config(physical, run):
+    roll_spring_stiffness_n_m(run)
     g = physical["geometry"]
     area = piston_area(g["actuator_piston_diameter_m"], g["actuator_shaft_diameter_m"])
     piston_area(g["blowoff_piston_diameter_m"], g["blowoff_shaft_diameter_m"])

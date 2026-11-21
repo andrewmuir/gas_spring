@@ -1,0 +1,68 @@
+# Paths are resolved relative to this YAML file.
+run_name: Barcelona 2023 | Verstappen lap 61 | Front axle
+input_parquet: ../examples/model_inputs/barcelona_2023_verstappen_lap61_front_input.parquet
+output_parquet: ../examples/runs/barcelona_2023_lap61_front_100hz.parquet
+# Spring force on each piston per metre of travel difference between the pistons.
+roll_spring_stiffness_n_m: 212500
+seed: 12345
+# Hot spaces may use a constant value or a column from the input Parquet file.
+hot_ambient:
+  source: constant
+  temperature_c: 120
+  column: hot_ambient_c
+# Blow-off travel is measured from its zero-travel stop.
+blowoff_initial_travel_m: 0.0
+blowoff_max_travel_m: 0.05
+initial_gas_gauge_pressure_bar:
+  low: 15
+  main: 35
+  blowoff: 70
+# The four actuator temperatures can be varied independently between runs.
+# Chamber temperatures are uniform initial values; wall and piston starting
+# temperatures are provisional guesses. The hot ambient remains 120 C above.
+initial_temperatures_c:
+  actuator_a_fluid: 50
+  actuator_b_fluid: 50
+  actuator_a_gas: 50
+  actuator_b_gas: 50
+  main_accumulator_fluid: 25
+  blowoff_fluid: 25
+  main_accumulator_gas: 25
+  blowoff_gas: 25
+  low_pressure_reservoir_gas: 25
+  actuator_a_housing_and_piston: 50  # assumed initially equal to actuator
+  actuator_b_housing_and_piston: 50
+  main_accumulator_housing_and_piston: 25  # assumed equal to local fluid/gas
+  blowoff_housing_and_piston: 25
+  low_pressure_reservoir_housing: 25
+  cooler_region: 25                # provisional cooler initial temperature
+  pipe_surroundings: 25            # provisional, separate from cooler region
+# Initial pipe fluid and gas temperatures vary linearly along the pipe. When
+# the two actuator temperatures differ, their arithmetic mean is the assumed
+# common junction temperature. On the hydraulic far end, use the mean of the
+# main and blow-off fluid temperatures as an initial junction approximation.
+# Pipe walls are assumed to start with the same gradient as their contents.
+pipe_initial_temperature_profile: linear_between_connected_chambers
+# Numerical controls are provisional; repeat runs at finer resolution and
+# smaller time steps before relying on simulated trends.
+solver:
+  pipe_cells: 3
+  actuator_wall_cells: 6
+  relative_tolerance: 0.00001
+  max_step_s: 0.05
+  max_events: 10000
+  # CLI progress interval in simulation seconds; the solver checkpoints here.
+  progress_interval_s: 0.5
+  # Smooth seal friction transitions through zero over this velocity scale.
+  # This replaces ideal static sticking with a small amount of creep.
+  friction_model: smooth
+  friction_velocity_scale_m_s: 0.005
+sensor_locations:
+  low_pressure_gas_pressure: low_pressure_reservoir
+  low_pressure_gas_temperature: low_pressure_reservoir
+sensor_calibration:
+  default: {gain: 1.0, offset: 0.0}
+  # Each channel may override gain, offset, temperature_coefficient, reference_temperature_c.
+  actuator_a_displacement: {temperature_coefficient: 0.0, reference_temperature_c: 20.0}
+  actuator_b_displacement: {temperature_coefficient: 0.0, reference_temperature_c: 20.0}
+  blowoff_displacement: {temperature_coefficient: 0.0, reference_temperature_c: 20.0}

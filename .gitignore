@@ -17,3 +17,5 @@ examples/benchmarks/*_profile.txt
 examples/benchmarks/gas_validation/*.parquet
 examples/benchmarks/gas_validation/*.log
 .venv/
+/examples/model_inputs/**/*.parquet
+/examples/runs/*.parquet

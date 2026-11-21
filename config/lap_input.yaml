@@ -1,0 +1,33 @@
+axle: front  # actuator A = left, actuator B = right; change to rear for that axle
+# Actuator travel / wheel travel. Replace these 1:1 placeholders.
+motion_ratio:
+  front: 1.0
+  rear: 1.0
+wheelbase_m: 3.5
+track_width_m: 1.6
+cog_height_m: 0.25
+mass_kg: 750
+front_weight_fraction: 0.46
+
+# Each point is [speed in km/h, fraction at the front]. Both balances are linear.
+mechanical_balance: [[70, 0.52], [250, 0.65]]
+aero_balance: [[100, 0.45], [250, 0.47]]
+aero_power: 1.5
+aero_coefficient: 21.68981327720458  # 16500 / (300 / 3.6)**1.5
+
+duct_air_speed_m_s: 2.0
+hot_ambient_c: 120
+
+# Time interpolation between valid samples; hold nearest estimate at a lap edge.
+acceleration_gaps:
+  max_interior_s: 2.3
+  max_boundary_s: 0.3
+# Where the inside wheel would be negative, limit the shift across that axle.
+# Set to error to reject these samples instead.
+negative_wheel_load: limit_transfer
+
+# Optional bench startup using the zero-position force for config/run.yaml.
+# Remove this section to start the input at the first lap sample.
+preload:
+  duration_s: 4.0
+  force_per_actuator_n: 1729.446755801181

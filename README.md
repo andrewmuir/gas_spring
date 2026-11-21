@@ -53,6 +53,97 @@ CSV/Parquet data, plots, validity flags and original source records for
 developing vehicle-based input profiles. Acceleration is derived from speed
 and approximate position, with smoothing and source gaps documented.
 
+## Convert laps to actuator inputs
+
+`config/lap_input.yaml` contains the example 750 kg car settings. Select
+`axle: front` or `axle: rear`. Actuator A uses the left wheel load and B the
+right wheel load from that axle. Each output retains all four wheel loads,
+both axle totals, and the acceleration and load transfer channels.
+
+Set `motion_ratio` as actuator travel divided by wheel travel. Supply one
+positive number for both axles or separate `front` and `rear` values. The
+converter divides wheel load by this ratio to get actuator force: for example,
+8 mm of actuator travel per 10 mm of wheel travel gives a ratio of 0.8 and
+converts 4,000 N at the wheel to 5,000 N at the actuator. The sample values
+are 1.0 placeholders. The ratio does not change the wheel load channels or
+the optional preload, which is already specified at the actuator.
+
+```powershell
+python -m gas_spring.lap_input --settings config/lap_input_baseline.yaml --output-dir examples/model_inputs examples/lap_profiles/barcelona_2023_verstappen_lap61.parquet
+```
+
+Accepts CSV or Parquet. Pass multiple paths after the options or use the quoted
+pattern `"examples/lap_profiles/*.parquet"` to convert the whole collection.
+The converter calculates loads at the source timestamps, then linearly
+interpolates the resulting profile onto a 100 Hz grid (one row every 10 ms).
+If the lap ends between grid points, its final values are held to the next
+grid point. The original lap duration is saved in the Parquet metadata.
+Each output is named `<lap>_<axle>_input.parquet`. To simulate the Barcelona
+front axle after generating its input, run:
+
+```powershell
+python -m gas_spring.cli --physical config/physical.yaml --run config/run_barcelona_front.yaml --simulate
+```
+
+For another lap or axle, set `input_parquet` in a copy of `config/run.yaml`
+to the corresponding `../examples/model_inputs/...` path and give
+`output_parquet` a separate name.
+
+The static axle loads are `mass × g × front_weight_fraction` at the front and
+`mass × g × (1 − front_weight_fraction)` at the rear. Longitudinal transfer
+`mass × ax × cog_height / wheelbase` shifts load to the rear under acceleration
+and to the front under braking. Lateral transfer
+`mass × ay × cog_height / track_width` shifts load to the right for a left turn;
+mechanical balance sets the fraction of that transfer applied at the front.
+Aero adds `aero_coefficient × (speed_kph / 3.6) ** aero_power` newtons, divided
+between the axles by aero balance and equally between wheels on each axle.
+Both balances are front fractions on straight lines through the two km/h
+anchors, including outside the anchors as long as the fractions stay in [0, 1].
+At 300 km/h, `config/lap_input_baseline.yaml` produces 15,000 N of
+downforce and `config/lap_input.yaml` produces 16,500 N (+10%). To regenerate
+the higher downforce inputs and run Barcelona:
+
+```powershell
+python -m gas_spring.lap_input --settings config/lap_input.yaml --output-dir examples/model_inputs/aero_plus_10pct "examples/lap_profiles/*.parquet"
+python -m gas_spring.cli --physical config/physical.yaml --run config/run_barcelona_front_aero_plus_10pct.yaml --simulate
+```
+
+To compare blow-off precharge, run the same higher downforce inputs at
+65 bar gauge instead of 70 bar:
+
+```powershell
+python -m gas_spring.cli --physical config/physical.yaml --run config/run_barcelona_front_aero_plus_10pct_blowoff_65bar.yaml --simulate
+```
+
+The two results are saved separately in `examples/runs` and share the same
+input profile.
+
+- The example interpolates interior acceleration gaps up to 2.3 s between
+  valid samples and holds the nearest valid value for up to 0.3 s at a lap
+  boundary. Filled samples have `*_acceleration_filled` set. An interpolated
+  row carries the flags of the source samples used to calculate it. Omit
+  `acceleration_gaps` to reject missing estimates.
+- `negative_wheel_load: limit_transfer` limits the shift within an axle so the
+  inside wheel does not go below zero and the axle total is preserved. Rows
+  with `*_lateral_transfer_limited` set no longer achieve the requested lateral
+  transfer on that axle. This is an approximation for model inputs; it does not
+  predict wheel lift. Set `negative_wheel_load: error` to reject those rows.
+- The optional `preload` introduces a separate linear ramp from the model's
+  zero-displacement force to the first lap loads. In the example, the real lap
+  starts at model `time_s = 4` and `lap_time_s = 0`. All rows before the lap
+  starts have `is_preload` set. Omit `preload` to start directly at the lap loads,
+  or update its force if the bench geometry or initial pressures change.
+- Duct air speed and hot ambient are constant settings, independent of the lap
+  telemetry. `config/run.yaml` can also specify its own hot ambient temperature.
+
+For use from Python, `build_model_inputs(lap_dataframe, settings_dictionary)`
+returns an independent DataFrame. Its required input columns are `time_s`,
+`vehicle_speed_kph`, `estimated_longitudinal_acceleration_m_s2`, and
+`estimated_lateral_acceleration_m_s2`. It also honors the lap files' optional
+`longitudinal_estimate_valid` and `lateral_estimate_valid` columns.
+`process_lap_files(path_or_paths, settings_dictionary, output_dir)` writes the
+Parquets and returns their paths. Both functions are in `gas_spring.lap_input`.
+
 ## Dashboard
 
 Install the optional dashboard dependencies and start the local viewer from the
@@ -63,12 +154,23 @@ python -m pip install -e ".[dashboard]"
 python -m streamlit run gas_spring/dashboard.py
 ```
 
-The dashboard defaults to `examples/inputs.parquet` and
-`examples/output.parquet`. In the sidebar, change either local path or upload a
-Parquet file. It provides an adjustable time window, unit-separated channel
-plots, virtual sensor versus truth comparisons, input force and environment
-profiles, and mass/energy audit plots. Large traces are downsampled for display;
-the source Parquet files are not altered.
+Set **Run directory** in the sidebar and pick a run by name. The default
+directory is `config`. The dashboard scans subdirectories for run YAMLs and
+saved simulation results. A run YAML can set `run_name` and names both
+`input_parquet` and `output_parquet`, relative to the YAML. New output
+Parquets also record the run name and the path to the input used, relative to
+the output. This lets the dashboard match the input from either directory
+without having to select it again. Click **Refresh runs** after saving a new
+result.
+
+The Barcelona result is `examples/runs/barcelona_2023_lap61_front_100hz.parquet`.
+Choose **Barcelona 2023 | Verstappen lap 61 | Front axle** from either
+`config` or `examples/runs`. For older results without a run YAML or saved
+link, the sidebar still accepts separate local files or uploads.
+
+The dashboard provides an adjustable time window, plots grouped by unit,
+sensor comparisons, the input profile, and mass and energy audits. Large
+traces are downsampled for display; the source Parquet files are not altered.
 
 The overview includes actuator velocity. Each new result contains
 `truth_actuator_a_shaft_velocity_m_s` and `truth_actuator_b_shaft_velocity_m_s`,
@@ -110,6 +212,17 @@ fluid inertia, including kinetic energy, without adding independent flow states.
 There is no liquid pressure state or compression spring.
 The main accumulator position and velocity are eliminated from the integration
 states: its motion follows the actuators, blow-off and liquid thermal expansion.
+
+The run YAML sets `roll_spring_stiffness_n_m`. The spring reacts to relative
+piston travel `x_a - x_b` with forces `-k * (x_a - x_b)` on A and
+`+k * (x_a - x_b)` on B. Equal piston travel leaves the spring unloaded.
+The example rate of 212,500 N/m gives 4,250 N of reaction on each side
+at 20 mm separation, balancing an 8,500 N applied force difference at
+±10 mm about the mean piston position in static equilibrium. Set the rate to
+zero to disable the spring; older run configs without the setting default to
+zero. The outputs include each actuator's roll spring force, relative travel,
+and stored spring energy. The system energy audit includes that stored energy.
+
 Every mechanical travel stop is a unilateral elastic contact with
 `end_stops.stiffness_n_m: 10000000` (10 kN/mm). The piston may move slightly
 beyond the first-contact coordinate, with reaction `F = k * deflection`.
@@ -152,8 +265,12 @@ numerical transition scales avoid ambiguous derivatives at zero flow.
 The CLI reports progress at 0.5-second simulated-time checkpoints, with a
 wall-time heartbeat during longer solves. Add `--diagnostics` to see BDF
 integration steps, function/Jacobian evaluations, factorizations and stop events.
+If a trial state gives a chamber an invalid volume, the solver retries that
+window from the last checkpoint with a smaller maximum step. The retry count,
+chamber name and reduced step limit are saved in the solve metrics.
 Total RHS calls include the evaluations needed to construct numerical Jacobians;
-SciPy's `nfev` counter excludes those. BDF replaces Radau after a five-second
+SciPy's `nfev` excludes those and is reported only for attempts that returned a
+solution object. BDF replaces Radau after a five-second
 comparison and tolerance check. Thermal expansion-source accelerations are
 differentiated analytically. The Newton Jacobian reuses the gas/thermal block
 and freezes weak thermal-volume acceleration coefficients during matrix

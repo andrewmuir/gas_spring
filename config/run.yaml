@@ -1,6 +1,9 @@
 # Paths are resolved relative to this YAML file.
+run_name: Bench ramp and frequency sweep
 input_parquet: ../examples/inputs.parquet
 output_parquet: ../examples/output.parquet
+# Spring force on each piston per metre of travel difference between the pistons.
+roll_spring_stiffness_n_m: 212500
 seed: 12345
 # Hot spaces may use a constant value or a column from the input Parquet file.
 hot_ambient:

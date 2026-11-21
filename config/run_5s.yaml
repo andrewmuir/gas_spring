@@ -1,6 +1,9 @@
 # First five seconds of the full profile, for timing and convergence tests.
+run_name: Bench ramp and frequency sweep (first 5 s)
 input_parquet: ../examples/inputs_5s.parquet
 output_parquet: ../examples/output_5s.parquet
+# Spring force on each piston per metre of travel difference between the pistons.
+roll_spring_stiffness_n_m: 212500
 seed: 12345
 hot_ambient:
   source: constant

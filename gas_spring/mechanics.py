@@ -10,11 +10,27 @@ import math
 from .hydraulics import piston_area
 
 
+class InvalidChamberVolume(ValueError):
+    """A piston position puts a chamber outside the physical volume domain."""
+
+
 def effective_piston_mass_kg(physical, name):
     """Return piston plus any rigidly attached external mass for dynamics."""
     piston_mass = float(physical["moving_masses_kg"][name])
     attached_mass = float(physical.get("attached_masses_kg", {}).get(name, 0.0))
     return piston_mass + attached_mass
+
+
+def roll_spring_stiffness_n_m(run):
+    """Read the spring rate per metre of relative piston travel."""
+    value = run.get("roll_spring_stiffness_n_m", 0.0)
+    try:
+        stiffness = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("roll_spring_stiffness_n_m must be finite and non-negative") from exc
+    if isinstance(value, bool) or not math.isfinite(stiffness) or stiffness < 0:
+        raise ValueError("roll_spring_stiffness_n_m must be finite and non-negative")
+    return stiffness
 
 
 def end_stop_response(position_m, lower_stop_m, upper_stop_m, stiffness_n_m,
@@ -79,8 +95,9 @@ def chamber_volumes(geometry, actuator_a_m=0.0, actuator_b_m=0.0,
     result["blowoff_fluid"] = g["blowoff_fluid_volume_at_zero_m3"] + blow_fluid_area * blowoff_m
     result["blowoff_gas"] = g["blowoff_gas_volume_at_zero_stop_m3"] - blow_gas_area * blowoff_m
     result["low_pressure_reservoir_gas"] = g["low_pressure_reservoir_m3"]
-    if any(not math.isfinite(v) or v <= 0 for v in result.values()):
-        raise ValueError("piston position gives non-positive or non-finite chamber volume")
+    for name, volume in result.items():
+        if not math.isfinite(volume) or volume <= 0:
+            raise InvalidChamberVolume(f"{name} chamber volume is non-positive or non-finite ({volume:g} m³)")
     return result
 
 

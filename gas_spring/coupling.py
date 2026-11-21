@@ -18,7 +18,7 @@ from .incompressible import (
     constrained_accelerations,
 )
 from .thermal_coupling import thermal_exchange, liquid_heat_rate_derivative
-from .mechanics import end_stop_response
+from .mechanics import end_stop_response, roll_spring_stiffness_n_m
 from .materials import ATMOSPHERIC_PRESSURE_PA
 
 PISTONS = ("actuator_a", "actuator_b", "main_accumulator", "blowoff")
@@ -47,6 +47,7 @@ class IncompressibleSystem:
         self.stop_stiffness = float(
             physical.get("end_stops", {}).get("stiffness_n_m", 1e7)
         )
+        self.roll_spring_stiffness = roll_spring_stiffness_n_m(run)
         self.stop_bounds = {
             "actuator_a": (
                 -self.g["actuator_compression_travel_m"],
@@ -468,9 +469,13 @@ class IncompressibleSystem:
         forces = {n: u[n + "_force_n"] for n in ("actuator_a", "actuator_b")}
         args = (self.physical, s["velocity"], gp, forces, sources, {}, self.cells)
         stops = self.stop_responses(s["position"])
+        roll_deflection = s["position"]["actuator_a"] - s["position"]["actuator_b"]
+        roll_force = self.roll_spring_stiffness * roll_deflection
+        roll_forces = {"actuator_a": -roll_force, "actuator_b": roll_force}
         kwargs = dict(
             external_piston_forces_n={
-                n: response["force_n"] for n, response in stops.items()
+                n: response["force_n"] + roll_forces.get(n, 0.0)
+                for n, response in stops.items()
             },
             temperatures_c=tstate["liquid"]["temperatures_c"],
             friction_velocity_scale_m_s=self.run.get("solver", {}).get(
@@ -526,6 +531,8 @@ class IncompressibleSystem:
             **tstate,
             "mechanics": mechanics,
             "end_stops": stops,
+            "roll_spring_force_n": roll_forces,
+            "roll_spring_energy_j": 0.5 * roll_force * roll_deflection,
             "position_rate_m_s": s["velocity"],
             "velocity_rate_m_s2": mechanics["acceleration_m_s2"],
             "source_rate_function": source_rates,

@@ -5,6 +5,7 @@ Install the optional UI dependencies with ``pip install -e '.[dashboard]'``.
 """
 from __future__ import annotations
 
+from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import re
@@ -13,6 +14,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+from gas_spring.run_catalog import scan_runs
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,23 +49,12 @@ def _resolve_path(raw_path: str) -> Path | None:
     return (PROJECT_ROOT / path).resolve()
 
 
-def _load_source(label: str, default_path: str, key: str) -> tuple[pd.DataFrame | None, str]:
-    """Render a file path and uploader for one Parquet source."""
-    with st.expander(f"{label} Parquet source", expanded=False):
-        uploaded = st.file_uploader(
-            f"Upload {label.lower()} Parquet", type=["parquet", "pq"], key=f"{key}_upload"
-        )
-        path_text = st.text_input(
-            "Or read from a local path (relative paths use the project folder)",
-            value=default_path,
-            key=f"{key}_path",
-        )
+def _read_source(label: str, path: Path | None, uploaded=None) -> tuple[pd.DataFrame | None, str]:
     try:
         if uploaded is not None:
             frame = _read_bytes(uploaded.getvalue(), uploaded.name)
             source = f"upload: {uploaded.name}"
         else:
-            path = _resolve_path(path_text)
             if path is None:
                 return None, "No file selected"
             if not path.is_file():
@@ -82,6 +74,59 @@ def _load_source(label: str, default_path: str, key: str) -> tuple[pd.DataFrame 
         return frame, source
     except Exception as exc:  # Present common Parquet/path problems in the UI.
         return None, f"Could not read {label.lower()} Parquet: {exc}"
+
+
+def _load_source(label: str, default_path: str, key: str) -> tuple[pd.DataFrame | None, str]:
+    """Render a file path and uploader for one Parquet source."""
+    with st.expander(f"{label} Parquet source", expanded=False):
+        uploaded = st.file_uploader(
+            f"Upload {label.lower()} Parquet", type=["parquet", "pq"], key=f"{key}_upload"
+        )
+        path_text = st.text_input(
+            "Or read from a local path (relative paths use the project folder)",
+            value=default_path,
+            key=f"{key}_path",
+        )
+    try:
+        path = _resolve_path(path_text) if uploaded is None else None
+    except (OSError, ValueError) as exc:
+        return None, f"Could not resolve {label.lower()} Parquet path: {exc}"
+    return _read_source(label, path, uploaded)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _scan_run_directory(path: str):
+    return scan_runs(path)
+
+
+def _select_run():
+    path_text = st.text_input("Run directory", value="config", key="run_directory")
+    refresh = st.button("Refresh runs")
+    try:
+        directory = _resolve_path(path_text)
+        if directory is None or not directory.is_dir():
+            st.info("Enter a directory containing run YAML files or simulation results.")
+            return None
+        if refresh:
+            _scan_run_directory.clear(str(directory))
+        entries = _scan_run_directory(str(directory))
+    except (OSError, ValueError) as exc:
+        st.warning(f"Could not scan the run directory: {exc}")
+        return None
+    if not entries:
+        st.info("No runs found in this directory.")
+        return None
+    names = Counter(entry.name.casefold() for entry in entries)
+    runs = {str(entry.output_path): entry for entry in entries}
+
+    def label(path):
+        entry = runs[path]
+        return (entry.name if names[entry.name.casefold()] == 1
+                else f"{entry.name} ({entry.output_path})")
+
+    selected = st.selectbox("Run", list(runs), index=None, placeholder="Select a run",
+                            format_func=label, key="selected_run")
+    return runs.get(selected)
 
 
 def _pretty(column: str) -> str:
@@ -423,10 +468,22 @@ def main() -> None:
     st.caption("Explore Parquet inputs, coupled model states, virtual sensors, and mass/energy audits.")
 
     with st.sidebar:
-        st.header("Parquet files")
-        input_frame, input_source = _load_source("Input", "examples/inputs.parquet", "input")
-        output_frame, output_source = _load_source("Simulation output", "examples/output.parquet", "output")
+        st.header("Runs")
+        run = _select_run()
+        if run is None:
+            input_frame, input_source = _load_source("Input", "examples/inputs.parquet", "input")
+            output_frame, output_source = _load_source("Simulation output", "examples/output.parquet", "output")
+        else:
+            input_frame, input_source = _read_source("Input", run.input_path)
+            output_frame, output_source = _read_source("Simulation output", run.output_path)
+            with st.expander("Run files"):
+                st.text(f"Input: {input_source}")
+                st.text(f"Output: {output_source}")
+                if run.config_path is not None:
+                    st.text(f"Run YAML: {run.config_path}")
 
+    if run is not None:
+        st.subheader(run.name)
     if output_frame is not None:
         st.caption(f"Simulation result: {output_source}")
         display_frame = _time_filter(output_frame)

@@ -10,7 +10,7 @@ from time import perf_counter, process_time
 
 def print_diagnostic_model_context(physical, run, data):
     """Print configured solver settings and physical parameter context."""
-    from .mechanics import chamber_volumes
+    from .mechanics import chamber_volumes, roll_spring_stiffness_n_m
 
     geometry = physical["geometry"]
     volumes = chamber_volumes(geometry)
@@ -42,6 +42,7 @@ def print_diagnostic_model_context(physical, run, data):
     print(
         f"  End-stop stiffness: {physical.get('end_stops', {}).get('stiffness_n_m', 1e7):g} N/m per stop (10 kN/mm at the default)."
     )
+    print(f"  Roll spring: {roll_spring_stiffness_n_m(run):g} N/m of relative actuator travel.")
     print(
         "  Piston masses (kg): "
         + ", ".join(f"{name}={value:g}" for name, value in masses.items())
@@ -164,6 +165,7 @@ def main():
             f"Allowed static range: {eq.allowable_pressure_interval_pa[0] / 1e5:.4f} to {eq.allowable_pressure_interval_pa[1] / 1e5:.4f} bar gauge."
         )
     if args.simulate:
+        from .run_catalog import output_run_metadata
         from .solver import simulate
 
         output = (Path(args.run).resolve().parent / run["output_parquet"]).resolve()
@@ -172,6 +174,7 @@ def main():
             raise ValueError(
                 "output Parquet must not overwrite the input Parquet or either YAML file"
             )
+        run_metadata = output_run_metadata(run, args.run, source, output)
         start_s, end_s = float(data.time_s.iloc[0]), float(data.time_s.iloc[-1])
         integration_wall_s = 0.0
 
@@ -213,6 +216,8 @@ def main():
                     f"  Accepted step size: {snapshot['min_step_s']:.3g} to "
                     f"{snapshot['max_step_s']:.3g} s."
                 )
+            for retry in snapshot.get("step_retries", ()):
+                print(f"  Retried with max step {retry['max_step_s']:.3g} s: {retry['reason']}.")
             event_counts = snapshot["event_counts"]
             if event_counts:
                 event_summary = []
@@ -283,6 +288,7 @@ def main():
                 "Check force signs, initial pressures and travel stops; cavitation is not modeled."
             )
         print("Writing simulation output...", flush=True)
+        result.attrs["run_metadata"] = run_metadata
         output.parent.mkdir(parents=True, exist_ok=True)
         # Write a complete temporary file before replacing the requested output.
         with tempfile.NamedTemporaryFile(
