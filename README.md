@@ -144,6 +144,38 @@ returns an independent DataFrame. Its required input columns are `time_s`,
 `process_lap_files(path_or_paths, settings_dictionary, output_dir)` writes the
 Parquets and returns their paths. Both functions are in `gas_spring.lap_input`.
 
+## Batch runs
+
+Edit [config/batch_example.yaml](config/batch_example.yaml) to choose a run
+template, base lap settings, tracks, and parameter values. Preview the matrix
+before launching the batch:
+
+```powershell
+python -m gas_spring.run_harness config/batch_example.yaml --dry-run
+python -m gas_spring.run_harness config/batch_example.yaml
+```
+
+The example applies all combinations of −10%, baseline, and +10% aero,
+65 and 70 bar blow-off precharge, and 0 and +0.5 bar actuator A pressure sensor
+offset to Barcelona and Silverstone. That gives **24 results from 12 physical
+solves**. Cases that differ only in virtual sensor calibration or random seed
+share the same solve and get separate sensor readings and Parquet results.
+For all tracks, set `tracks: ["../examples/lap_profiles/*.parquet"]`.
+
+Each key in `run_overrides` is a dot-separated path in the run YAML. For
+example, `initial_gas_gauge_pressure_bar.main: [33, 35, 37]` sweeps main
+precharge. Aero scales multiply the coefficient from `lap_settings`.
+By default, the harness recomputes the startup preload from the physical
+geometry and each case's initial pressures. Set `balance_preload: false` to
+use the fixed preload in the lap settings.
+
+The batch saves inputs, resolved YAMLs, and named results under
+`output_dir`. Point the dashboard's **Run directory** at that folder to load
+them. Check `manifest.json` there for case settings, status, elapsed time,
+and errors. A failed case does not stop the rest, and the command exits with
+a failure status if any case fails. Run the same command again to resume
+pending or failed cases, or add `--force` to recompute completed cases.
+
 ## Dashboard
 
 Install the optional dashboard dependencies and start the local viewer from the

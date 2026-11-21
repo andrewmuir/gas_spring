@@ -1,0 +1,17 @@
+# Paths are relative to this YAML. Preview the matrix with --dry-run.
+physical: physical.yaml
+run_template: run_barcelona_front.yaml
+lap_settings: lap_input_baseline.yaml
+output_dir: ../examples/runs/batch_example
+
+tracks:
+  Barcelona: ../examples/lap_profiles/barcelona_2023_verstappen_lap61.parquet
+  Silverstone: ../examples/lap_profiles/silverstone_2023_verstappen_lap42.parquet
+# To run all available tracks, replace the tracks mapping with this list:
+# tracks: ["../examples/lap_profiles/*.parquet"]
+
+aero_scales: [0.9, 1.0, 1.1]
+balance_preload: true
+run_overrides:
+  initial_gas_gauge_pressure_bar.blowoff: [65, 70]
+  sensor_calibration.actuator_a_fluid_pressure.offset: [0.0, 0.5]

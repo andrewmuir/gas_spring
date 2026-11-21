@@ -19,3 +19,4 @@ examples/benchmarks/gas_validation/*.log
 .venv/
 /examples/model_inputs/**/*.parquet
 /examples/runs/*.parquet
+/examples/runs/batch_example/
